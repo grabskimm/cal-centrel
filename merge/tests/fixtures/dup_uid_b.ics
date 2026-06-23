@@ -1,0 +1,11 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//availcal//fixture//EN
+BEGIN:VEVENT
+UID:shared-uid-1234@work.example
+SUMMARY:Same event seen via feed B (e.g. device export of same account)
+DTSTART;TZID=America/New_York:20260618T140000
+DTEND;TZID=America/New_York:20260618T150000
+TRANSP:OPAQUE
+END:VEVENT
+END:VCALENDAR
