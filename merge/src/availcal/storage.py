@@ -24,6 +24,8 @@ from typing import Protocol, runtime_checkable
 log = logging.getLogger("availcal.storage")
 
 MERGED_OBJECT = "merged/availability.ics"
+# Fully-anonymized public feed (no source labels); served without a token.
+PUBLIC_OBJECT = "public/availability.ics"
 RAW_PREFIX = "raw/"
 
 

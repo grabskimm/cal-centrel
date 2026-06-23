@@ -114,6 +114,13 @@ via Managed Identity. Defined in `infra/main.bicep`.
 - **Per-source overlays** (`/raw/<Label>.ics`, optional) preserve the original
   event UID for anyone who prefers separate toggleable calendars. They still
   carry no event content.
+- **Public anonymized feed** (`public/availability.ics`, optional, off by
+  default) goes one step further than the merged feed: `flatten_across_sources`
+  **unions every busy interval across all sources** into non-overlapping blocks,
+  each emitted as a bare `Busy` event with no label, no `CATEGORIES`, and a
+  time-only UID. It reveals only occupied windows — not which calendar, nor how
+  many calendars exist. It is intended to be served on a separate **public**
+  host with no token; the Worker serves nothing else on that host.
 
 ### 5. Orchestrate (`main.py`)
 Env-driven config; loads+validates the source registry; optionally resolves feed

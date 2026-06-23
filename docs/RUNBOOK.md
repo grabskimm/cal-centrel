@@ -61,6 +61,23 @@ your `*.workers.dev` host if you skip the custom domain.)
 Local dev: `cp worker/.dev.vars.example worker/.dev.vars` (fill in), then
 `npx wrangler dev`.
 
+### Optional: public anonymized feed
+
+To also expose a token-free, fully-anonymized feed on its own host:
+
+1. In `worker/wrangler.jsonc` set `AVAILCAL_EMIT_PUBLIC: "true"` and
+   `PUBLIC_FEED_HOST: "availability.example.com"`, and add that hostname to the
+   `routes` block.
+2. `npx wrangler deploy`, then subscribe clients to
+   `https://availability.example.com/availability.ics` (no token).
+
+Validation: confirm the public URL returns `Busy`-only events and that **no**
+source label appears (`curl -s https://availability.example.com/availability.ics
+| grep -iE 'Work|iCloud|Perso|CATEGORIES'` should print nothing). Confirm the
+private host still requires `?token=` and that `/raw/*` and `/run` return 404 on
+the public host. ⚠️ Remember this endpoint publicly reveals your busy/free
+windows (anonymized, but visible); keep it off unless you want that.
+
 ## One-time setup — Azure (alternative)
 
 ### 1. Deploy infrastructure

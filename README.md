@@ -143,6 +143,10 @@ custom domain, or the `*.workers.dev` host) — see [docs/SUBSCRIBE.md](docs/SUB
   hard error, and `ruff`'s `DTZ` rules gate against naive comparisons in CI.
 - **Overlaps collapse only within a source**, never across — two calendars busy
   at the same time stay two separately-tagged events, preserving attribution.
+- **Optional public feed**: a second, **fully-anonymized** feed
+  (`public/availability.ics`) unions all sources into bare `Busy` blocks — no
+  labels, no source count — for a token-free host like `availability.example.com`.
+  Off by default; see [worker/README.md](worker/README.md#public-anonymized-feed-optional).
 
 ## Known, accepted properties
 

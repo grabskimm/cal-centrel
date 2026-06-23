@@ -91,6 +91,27 @@ def _collapse_one_source(intervals: list[BusyInterval]) -> list[BusyInterval]:
     return out
 
 
+PUBLIC_LABEL = "Busy"
+
+
+def flatten_across_sources(
+    intervals: list[BusyInterval], *, label: str = PUBLIC_LABEL
+) -> list[BusyInterval]:
+    """Union ALL busy intervals across every source into non-overlapping blocks.
+
+    This is the opposite of the per-source merge: it deliberately ERASES source
+    boundaries. The output reveals only occupied time windows — never how many
+    calendars exist, their labels, or which one is busy — which is exactly what a
+    fully-anonymized *public* free/busy feed must expose. Overlapping blocks from
+    different sources collapse into one, so the source count cannot be inferred.
+    """
+    if not intervals:
+        return []
+    # Relabel everything to a single sentinel, then collapse as one source.
+    relabeled = [BusyInterval(iv.start, iv.end, label, "busy") for iv in intervals]
+    return _collapse_one_source(relabeled)
+
+
 def merge_intervals(intervals: list[BusyInterval]) -> list[BusyInterval]:
     """Full merge: dedup, then collapse overlaps per-source only."""
     deduped = _dedup(intervals)

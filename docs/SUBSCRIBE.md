@@ -12,6 +12,17 @@ Subscribe clients to a **private, read-only URL** of it:
 - **Azure:** a long-lived **read-only SAS** URL for the merged blob (or a stored
   access policy). Never make the container public.
 
+### Optional public, anonymized feed
+
+You can also expose a token-free, fully-anonymized feed on its own host (e.g.
+`https://availability.example.com/availability.ics`). It shows only `Busy`
+blocks — no titles, no source names, and sources are unioned so the calendar
+count can't be inferred. Use this when you want to hand someone a "when am I
+free" link without a token and without revealing anything but the time windows.
+Enable it via the Worker (see
+[worker/README.md](../worker/README.md#public-anonymized-feed-optional)); it is
+**off by default**.
+
 > The merged feed is **self-describing**: each block's **title is its source's
 > one word** (e.g. `Work`, `Perso`, `iCloud`), and `CATEGORIES` carries the same
 > label so capable clients can color/filter by source — all within this single

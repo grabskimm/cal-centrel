@@ -127,3 +127,56 @@ def test_run_routes_through_r2_backend(tmp_path, monkeypatch):
     vevents = [c for c in cal.walk() if c.name == "VEVENT"]
     assert vevents, "device JSON from R2 should produce busy blocks"
     assert {str(e.get("SUMMARY")) for e in vevents} == {"WorkX"}
+
+
+def test_run_emits_public_feed_without_labels(tmp_path):
+    from availcal.storage import PUBLIC_OBJECT
+
+    sources = _write_sources(tmp_path)
+    ics_dir = tmp_path / "ics"
+    ics_dir.mkdir()
+    for name in ("dst.ics", "allday.ics", "overlap_same_source.ics"):
+        (ics_dir / name).write_text((FIX / name).read_text())
+    out_dir = tmp_path / "out"
+    cfg = Config(
+        sources_toml=str(sources),
+        local_ics_dir=str(ics_dir),
+        output_dir=str(out_dir),
+        emit_per_source=False,
+        emit_public=True,
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        horizon_days=365,
+    )
+    written = run(cfg)
+
+    public_path = out_dir / PUBLIC_OBJECT
+    assert public_path.exists()
+    assert any(PUBLIC_OBJECT in w for w in written)
+
+    text = public_path.read_text()
+    cal = icalendar.Calendar.from_ical(text)
+    evts = [c for c in cal.walk() if c.name == "VEVENT"]
+    assert evts
+    # Every summary is the generic word and NO source label leaks.
+    assert {str(e.get("SUMMARY")) for e in evts} == {"Busy"}
+    for leak in ("Work", "Perso", "Cal", "WorkX"):
+        assert leak not in text
+
+
+def test_public_feed_off_by_default(tmp_path):
+    from availcal.storage import PUBLIC_OBJECT
+
+    sources = _write_sources(tmp_path)
+    ics_dir = tmp_path / "ics"
+    ics_dir.mkdir()
+    (ics_dir / "dst.ics").write_text((FIX / "dst.ics").read_text())
+    out_dir = tmp_path / "out"
+    cfg = Config(
+        sources_toml=str(sources),
+        local_ics_dir=str(ics_dir),
+        output_dir=str(out_dir),
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        horizon_days=365,
+    )
+    run(cfg)
+    assert not (out_dir / PUBLIC_OBJECT).exists()  # opt-in only

@@ -13,10 +13,12 @@ prefers separate toggleable calendars; they still never carry event content.
 
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 
 import icalendar
 
+from .merge import flatten_across_sources
 from .models import BusyInterval
 
 PRODID = "-//availcal//free-busy//EN"
@@ -58,6 +60,37 @@ def emit_merged_ics(intervals: list[BusyInterval], *, name: str = "AvailCal") ->
     cal = _calendar(name)
     for iv in sorted(intervals, key=lambda i: (i.start, i.source)):
         cal.add_component(_vevent(iv, uid=iv.stable_uid()))
+    return cal.to_ical()
+
+
+def _public_uid(iv: BusyInterval) -> str:
+    """UID derived from time ONLY (no source), so the public feed leaks nothing."""
+    digest = hashlib.sha1(  # noqa: S324 - not security
+        f"{iv.start.isoformat()}|{iv.end.isoformat()}".encode()
+    ).hexdigest()
+    return f"{digest}@availcal-public"
+
+
+def emit_public_ics(intervals: list[BusyInterval], *, name: str = "Availability") -> bytes:
+    """Build the fully-anonymized PUBLIC free/busy feed.
+
+    Every source boundary is erased: all busy intervals are unioned across
+    sources into non-overlapping blocks, each emitted as a bare ``Busy`` event
+    with NO source label, NO ``CATEGORIES``, and a time-only UID. The feed
+    reveals only when the owner is occupied — not which calendar, nor how many
+    calendars exist. Intended to be served WITHOUT a token on a public host.
+    """
+    cal = _calendar(name)
+    for iv in sorted(flatten_across_sources(intervals), key=lambda i: (i.start, i.end)):
+        ev = icalendar.Event()
+        ev.add("UID", _public_uid(iv))
+        ev.add("DTSTAMP", iv.start)
+        ev.add("DTSTART", iv.start)
+        ev.add("DTEND", iv.end)
+        ev.add("SUMMARY", "Busy")  # generic; never a source label
+        ev.add("TRANSP", "OPAQUE")
+        ev.add("X-MICROSOFT-CDO-BUSYSTATUS", "BUSY")
+        cal.add_component(ev)
     return cal.to_ical()
 
 

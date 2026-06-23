@@ -73,6 +73,35 @@ Docker Hub / pip egress limits as any image build; in normal CI it just works.)
 | POST | `/run` | `RUN_TOKEN` (Bearer) | manual merge trigger |
 | GET | `/health` | none | liveness |
 
+## Public anonymized feed (optional)
+
+In addition to the private token feed, you can expose a **fully-anonymized
+public** free/busy feed on its own hostname — no token, no calendar names, no
+source labels, and sources unioned so a viewer can't even tell how many
+calendars you have. It answers only "busy or free, when".
+
+```
+private:  https://availcal.example.com/availability.ics?token=<FEED_TOKEN>   (named, token)
+public:   https://availability.example.com/availability.ics                  (just "Busy", no token)
+```
+
+Enable it:
+
+1. Set `AVAILCAL_EMIT_PUBLIC: "true"` in `wrangler.jsonc` `vars` so the merge job
+   writes `public/availability.ics` to R2.
+2. Set `PUBLIC_FEED_HOST` to the hostname that serves it (e.g.
+   `availability.example.com`) and add that hostname to the `routes` block.
+3. `npx wrangler deploy`.
+
+On `PUBLIC_FEED_HOST` the Worker serves **only** the public feed — the token
+feed, per-source overlays, uploads, and `/run` are all unreachable there, so the
+public hostname can never expose labels or accept writes.
+
+> ⚠️ This endpoint is genuinely public: anyone with the URL sees your busy/free
+> windows (not the contents). It's anonymized — no titles, names, or source
+> count — but the time windows themselves are visible. Leave it off unless you
+> want that.
+
 ## Custom domain (Enterprise)
 
 To serve the feed from your own hostname instead of `*.workers.dev`:

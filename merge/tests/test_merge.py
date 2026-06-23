@@ -90,3 +90,17 @@ def test_oof_outranks_tentative_when_collapsed():
     [m] = merge_intervals([t, o])
     # Merged block keeps the strongest status present.
     assert m.status == "oof"
+
+
+def test_flatten_across_sources_unions_everything():
+    from availcal.merge import flatten_across_sources
+
+    a = BusyInterval(_utc(2026, 6, 24, 9), _utc(2026, 6, 24, 11), "Work")
+    b = BusyInterval(_utc(2026, 6, 24, 10), _utc(2026, 6, 24, 12), "iCloud")
+    c = BusyInterval(_utc(2026, 6, 24, 13), _utc(2026, 6, 24, 14), "Perso")
+    flat = sorted(flatten_across_sources([a, b, c]), key=lambda i: i.start)
+    # a∪b overlap -> 9-12 ; c disjoint -> 13-14. Source erased to sentinel.
+    assert len(flat) == 2
+    assert flat[0].start == _utc(2026, 6, 24, 9)
+    assert flat[0].end == _utc(2026, 6, 24, 12)
+    assert {i.source for i in flat} == {"Busy"}

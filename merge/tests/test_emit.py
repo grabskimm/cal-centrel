@@ -69,3 +69,38 @@ def test_per_source_preserves_original_uid():
     work_ics = per["Work"].decode()
     assert "orig-123@work" in work_ics  # per-source keeps original UID
     assert "SUMMARY:Work" in work_ics
+
+
+def test_public_feed_is_fully_anonymized_and_unions_sources():
+    from availcal.emit import emit_public_ics
+
+    # Two DIFFERENT sources overlapping in time.
+    ivs = [
+        BusyInterval(_utc(9), _utc(11), "Work"),
+        BusyInterval(_utc(10), _utc(12), "iCloud"),
+        BusyInterval(_utc(14), _utc(15), "Perso"),
+    ]
+    ics = emit_public_ics(ivs)
+    evts = _events(ics)
+
+    # Cross-source overlap unioned: 9-11 + 10-12 -> one 9-12 block, plus 14-15.
+    assert len(evts) == 2
+    for e in evts:
+        assert str(e.get("SUMMARY")) == "Busy"   # generic, never a label
+        assert e.get("CATEGORIES") is None        # no source category
+        assert str(e.get("TRANSP")) == "OPAQUE"
+        assert e.get("DESCRIPTION") is None and e.get("LOCATION") is None
+
+    # No source name leaks anywhere in the bytes.
+    text = ics.decode()
+    for leak in ("Work", "iCloud", "Perso"):
+        assert leak not in text
+
+
+def test_public_uid_independent_of_source():
+    from availcal.emit import _public_uid
+
+    a = BusyInterval(_utc(9), _utc(10), "Work")
+    b = BusyInterval(_utc(9), _utc(10), "Perso")
+    # Same time, different source -> identical public UID (no source in it).
+    assert _public_uid(a) == _public_uid(b)

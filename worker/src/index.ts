@@ -28,6 +28,10 @@ export interface Env {
   AGENT_TOKEN: string; // device-agent PUT uploads (Bearer)
   RUN_TOKEN: string; // Worker<->Container trigger + manual POST /run (Bearer)
 
+  // Hostname for the fully-anonymized PUBLIC feed (no token, no labels). When a
+  // request arrives on this host, only the public feed is served. Empty = off.
+  PUBLIC_FEED_HOST: string;
+
   // --- config passed through to the Container process ---
   AVAILCAL_R2_BUCKET: string;
   AVAILCAL_R2_ACCOUNT_ID: string;
@@ -37,9 +41,12 @@ export interface Env {
   AVAILCAL_DEFAULT_TZ: string;
   AVAILCAL_HORIZON_DAYS: string;
   AVAILCAL_INCLUDE_TENTATIVE: string;
+  // "true" makes the merge job also write the anonymized public feed to R2.
+  AVAILCAL_EMIT_PUBLIC: string;
 }
 
 const MERGED_KEY = 'merged/availability.ics';
+const PUBLIC_KEY = 'public/availability.ics';
 const RAW_ICS_RE = /^\/raw\/[A-Za-z0-9_]+\.ics$/;
 const RAW_JSON_RE = /^\/raw\/[A-Za-z0-9_]+\.json$/;
 
@@ -67,6 +74,7 @@ export class MergeContainer extends Container<Env> {
       AVAILCAL_DEFAULT_TZ: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
       AVAILCAL_HORIZON_DAYS: env.AVAILCAL_HORIZON_DAYS ?? '90',
       AVAILCAL_INCLUDE_TENTATIVE: env.AVAILCAL_INCLUDE_TENTATIVE ?? 'true',
+      AVAILCAL_EMIT_PUBLIC: env.AVAILCAL_EMIT_PUBLIC ?? 'false',
       // The Worker authenticates its /run call with this token.
       AVAILCAL_RUN_TOKEN: env.RUN_TOKEN,
     };
@@ -112,6 +120,16 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // --- PUBLIC host: serve ONLY the anonymized feed, no token, nothing else ---
+    // Everything sensitive (token feed, overlays, uploads, /run) is unreachable
+    // here, so the public hostname can never expose labels or accept writes.
+    if (env.PUBLIC_FEED_HOST && url.hostname === env.PUBLIC_FEED_HOST) {
+      if (request.method === 'GET' && (path === '/' || path === '/availability.ics')) {
+        return serveObject(env, PUBLIC_KEY);
+      }
+      return new Response('not found', { status: 404 });
+    }
 
     // --- serve the merged feed ---
     if (request.method === 'GET' && path === '/availability.ics') {
