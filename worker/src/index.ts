@@ -21,6 +21,7 @@
  */
 import { Container, getContainer } from '@cloudflare/containers';
 
+import { type BookingPageCfg, bookingHtml } from './booking';
 import { DEMO_HTML } from './demo';
 import { type Busy, computeSlots, parseDays } from './slots';
 
@@ -57,6 +58,11 @@ export interface Env {
   SCHEDULE_WORK_END?: string; // default working hours end HH:MM
   SCHEDULE_DAYS?: string; // default allowed weekdays, e.g. "1-5"
   SCHEDULE_MAX_RANGE_DAYS?: string; // clamp the requested date range
+
+  // --- Outlook booking page (/book on the public host) ---
+  BOOKING_OWNER_EMAIL?: string; // invitee on the composed Outlook event
+  BOOKING_TITLE?: string; // default event subject
+  BOOKING_OUTLOOK_FLAVOR?: string; // 'office' (M365, default) | 'live' (personal)
 }
 
 const MERGED_KEY = 'merged/availability.ics';
@@ -162,6 +168,19 @@ export default {
           return serveObject(env, PUBLIC_FREEBUSY_KEY, 'application/json; charset=utf-8', CORS);
         }
         if (path === '/slots.json') return handleSlots(url, env);
+        if (path === '/book') {
+          const cfg: BookingPageCfg = {
+            owner: env.BOOKING_OWNER_EMAIL ?? '',
+            title: env.BOOKING_TITLE ?? 'Meeting',
+            flavor: env.BOOKING_OUTLOOK_FLAVOR ?? 'office',
+            tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
+            durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
+            slotsBase: '', // same origin
+          };
+          return new Response(bookingHtml(cfg), {
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+          });
+        }
       }
       return new Response('not found', { status: 404, headers: CORS });
     }

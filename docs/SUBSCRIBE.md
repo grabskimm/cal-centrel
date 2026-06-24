@@ -33,6 +33,12 @@ public host. This stays read-only — your page wires the chosen slot into its o
 booking flow. Full param reference:
 [worker/README.md](../worker/README.md#web-scheduling-endpoints-on-the-public-host).
 
+**Outlook booking:** `GET /book` on the public host is a ready-made page that
+turns those free slots into an Outlook event via a compose deeplink (you're added
+as invitee; the visitor presses Save) — no write credential, AvailCal stays
+read-only. Set `BOOKING_OWNER_EMAIL`/`BOOKING_OUTLOOK_FLAVOR`. Details:
+[worker/README.md](../worker/README.md#booking-with-outlook-read-only-hand-off).
+
 > The merged feed is **self-describing**: each block's **title is its source's
 > one word** (e.g. `Work`, `Perso`, `iCloud`), and `CATEGORIES` carries the same
 > label so capable clients can color/filter by source — all within this single

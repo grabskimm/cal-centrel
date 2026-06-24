@@ -62,7 +62,14 @@
     "SCHEDULE_WORK_START": "09:00",
     "SCHEDULE_WORK_END": "17:00",
     "SCHEDULE_DAYS": "1-5",
-    "SCHEDULE_MAX_RANGE_DAYS": "62"
+    "SCHEDULE_MAX_RANGE_DAYS": "62",
+
+    // Outlook booking page at /book on the public host. Set BOOKING_OWNER_EMAIL
+    // to the mailbox that should receive the invite. FLAVOR: "office" (M365) or
+    // "live" (personal outlook.com).
+    "BOOKING_OWNER_EMAIL": "you@example.com",
+    "BOOKING_TITLE": "Meeting",
+    "BOOKING_OUTLOOK_FLAVOR": "office"
   },
 
   "observability": { "enabled": true }
