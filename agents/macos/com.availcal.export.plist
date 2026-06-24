@@ -6,16 +6,15 @@
     <key>Label</key>
     <string>com.availcal.export</string>
 
-    <!-- install.sh rewrites these paths to your actual install location and
-         points the interpreter at the dedicated venv it creates
-         (__INSTALL_DIR__/venv/bin/python) so PyObjC is always present and there
-         is no ambiguity about which python3 runs. -->
+    <!-- install.sh rewrites this to the launcher inside the signed app bundle it
+         builds (__INSTALL_DIR__/AvailCal.app/Contents/MacOS/availcal). Running
+         the bundle's executable gives the job a stable macOS app identity, so
+         the Calendar (TCC) prompt appears and the grant is listed/persisted
+         under "AvailCal". The launcher spawns the venv python as a child, which
+         inherits the app as its responsible process. -->
     <key>ProgramArguments</key>
     <array>
-        <string>__PYTHON_BIN__</string>
-        <string>__INSTALL_DIR__/export_calendar.py</string>
-        <string>--sources-toml</string>
-        <string>__INSTALL_DIR__/sources.toml</string>
+        <string>__APP_EXEC__</string>
     </array>
 
     <!-- Run hourly. -->

@@ -85,10 +85,10 @@ The **single most common** issue. The dry run passing proves the script and
 interpreter are correct; the **launchd** run is what's failing.
 
 **Why:** macOS attributes a calendar grant to the **responsible process**. A dry
-run from Terminal grants *Terminal*, so the manual run works. When **launchd**
-runs the same python later, there's no Terminal in the chain, so that python has
-**no grant of its own** → the scheduled job fails. The launchd job needs its
-**own** grant.
+run from Terminal grants *Terminal*, so the manual run works. The scheduled job
+isn't run by Terminal, so it needs its **own** grant. That's why the installer
+builds **`AvailCal.app`** — the launchd job runs the app's launcher, so the
+prompt and grant are attributed to **"AvailCal"** (not Terminal, not Python).
 
 **Fix** — trigger a run in your GUI session and approve the prompt it raises:
 
@@ -96,7 +96,8 @@ runs the same python later, there's no Terminal in the chain, so that python has
 launchctl kickstart -k gui/$(id -u)/com.availcal.export
 ```
 
-Click **Allow → Full Access**. If **no prompt** appears, clear stale state and retry:
+Click **Allow → Full Access** on the **"AvailCal" would like to access your
+Calendar** prompt. If **no prompt** appears, clear stale state and retry:
 
 ```bash
 tccutil reset Calendar          # NO sudo
@@ -104,13 +105,40 @@ launchctl kickstart -k gui/$(id -u)/com.availcal.export
 ```
 
 Then confirm in **System Settings → Privacy & Security → Calendars** that
-**Python** is listed and set to **Full Access** (not "Add Only").
+**AvailCal** is listed and set to **Full Access** (not "Add Only").
 
 Notes:
 - The plist ships with `ProcessType Standard` so this first-run prompt isn't
   suppressed/deprioritized.
 - **Full Disk Access does *not* help** — EventKit is gated by the separate
   *Calendars* permission class, not FDA.
+
+### A bare interpreter never appears in Privacy → Calendars
+
+This is *why* the app exists. A plain `python3` launched by launchd has no app
+bundle and no usage-description string, so macOS won't present the calendar
+prompt for it and never lists it — the job stays silently denied. `AvailCal.app`
+(a signed bundle whose `Info.plist` carries `NSCalendarsFullAccessUsageDescription`)
+gives the job a real, stable identity macOS can prompt for and remember.
+
+If **"AvailCal" is missing** from the Calendars pane after a kickstart, rebuild
+and re-sign the bundle, then retry:
+
+```bash
+cd ~/availcal
+AVAILCAL_AGENT_SAS_URL="…/raw/<Label>.json" AVAILCAL_AGENT_TOKEN="…" ./install.sh ~/availcal
+tccutil reset Calendar
+launchctl kickstart -k gui/$(id -u)/com.availcal.export
+```
+
+To see what macOS decides in real time, stream the TCC log while you kickstart:
+```bash
+log stream --predicate 'subsystem == "com.apple.TCC" AND category == "access"' --info
+```
+The lines name the requesting/responsible process — you want to see
+`com.availcal.export` / `AvailCal`. If you instead see the request auto-denied
+with no prompt, confirm the app is signed (`codesign -dv ~/availcal/AvailCal.app`)
+and that `cc`/`codesign` were available at install time.
 
 ---
 

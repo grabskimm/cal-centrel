@@ -7,8 +7,13 @@ work accounts that sync to Calendar.app even when the server forbids published
 ICS.
 
 - **Script:** `export_calendar.py` (stdlib + PyObjC only).
-- **Schedule:** `com.availcal.export.plist` loaded by **launchd** (hourly).
-- **Installer:** `install.sh` builds the venv, renders the plist, loads the job.
+- **App identity:** `AvailCal.app` — a tiny signed bundle (`app/launcher.c` +
+  `app/Info.plist`) that gives the job a real macOS app identity so the Calendar
+  prompt appears and the grant persists under "AvailCal".
+- **Schedule:** `com.availcal.export.plist` loaded by **launchd** (hourly),
+  pointed at the app's launcher.
+- **Installer:** `install.sh` builds the venv, compiles + signs the app, renders
+  the plist, loads the job.
 - **Stuck?** See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) — stale-file / wrong
   interpreter / TCC / `sudo` recovery.
 
@@ -40,6 +45,9 @@ titles, notes, attendees or locations are ever read.
   `requestFullAccessToEventsWithCompletion:` API).
 - **Python 3.9+.** The system `/usr/bin/python3` is fine; you do **not** need
   Homebrew. Check: `/usr/bin/python3 --version`.
+- **Xcode Command Line Tools** (provides `cc` + `codesign`, used to build and
+  sign `AvailCal.app`). You already have these if `/usr/bin/python3` exists;
+  otherwise `xcode-select --install`.
 - The calendars you want to publish are already syncing into **Calendar.app**
   (iCloud, Google, Exchange, etc.).
 - Your AvailCal upload URL and (for the Cloudflare Worker) the `AGENT_TOKEN`.
@@ -149,13 +157,15 @@ cd ~/availcal
    re-toggle it there and re-run. The agent refuses to upload until access is
    real.
 
-> **Important — the Terminal grant ≠ the launchd grant.** macOS attributes a
-> calendar grant to the **responsible process**. A dry run from Terminal grants
-> *Terminal*, so the manual run works — but when **launchd** runs the same python
-> later, there's no Terminal in the chain and it has no grant of its own, so the
-> scheduled job fails with `full calendar access NOT granted` even though the
-> dry run passed. The launchd job needs its **own** grant. After installing
-> (Step 7), trigger a run in your GUI session and approve the prompt it raises:
+> **Important — the Terminal grant ≠ the scheduled-job grant.** macOS attributes
+> a calendar grant to the **responsible process**. A dry run from Terminal grants
+> *Terminal*, so the manual run works — but the scheduled job isn't run by
+> Terminal, so it needs its **own** grant. That's exactly why the installer
+> builds **AvailCal.app**: the launchd job runs the app's launcher, so the prompt
+> appears as **"AvailCal"** and the grant persists under that name for every run.
+>
+> After installing (Step 7), trigger the first run in your GUI session and
+> approve the **"AvailCal" would like to access your Calendar** prompt:
 >
 > ```bash
 > launchctl kickstart -k gui/$(id -u)/com.availcal.export
@@ -163,9 +173,10 @@ cd ~/availcal
 >
 > If no prompt appears, clear stale state and try once more:
 > `tccutil reset Calendar && launchctl kickstart -k gui/$(id -u)/com.availcal.export`.
-> The plist uses `ProcessType Standard` specifically so this first-run prompt
-> isn't suppressed. Note: **Full Disk Access does not help** — EventKit is gated
-> by the separate *Calendars* permission class.
+> The plist uses `ProcessType Standard` so the first-run prompt isn't suppressed.
+> Note: **Full Disk Access does not help** — EventKit is gated by the separate
+> *Calendars* permission class. (The `--dry-run` in Step 5 is still useful for
+> checking the JSON, but it grants *Terminal*, not the scheduled job.)
 
 ### Step 5 — Dry run (verify the JSON, no upload)
 
@@ -203,11 +214,18 @@ The installer will:
 1. Build/refresh `~/availcal/venv` and install PyObjC into it.
 2. **Abort** if EventKit can't import in the venv (so a broken interpreter fails
    now, not silently at 3am).
-3. Render `com.availcal.export.plist` with your real paths, the **venv python**,
-   the upload URL, and the token, writing it to
-   `~/Library/LaunchAgents/com.availcal.export.plist`.
-4. `launchctl load` it — hourly via `StartInterval`, plus once immediately
-   (`RunAtLoad`).
+3. Compile + ad-hoc-sign **`~/availcal/AvailCal.app`** (the app identity that
+   makes the Calendar prompt appear as "AvailCal"). Requires `cc` + `codesign`
+   from the Command Line Tools.
+4. Render `com.availcal.export.plist` pointed at the app launcher + the upload
+   URL/token, writing it to `~/Library/LaunchAgents/com.availcal.export.plist`.
+5. `launchctl bootstrap` it into your GUI session — hourly via `StartInterval`,
+   plus once immediately (`RunAtLoad`).
+
+Then **trigger the first run and approve the prompt** (Step 4):
+```bash
+launchctl kickstart -k gui/$(id -u)/com.availcal.export
+```
 
 > **launchd does not inherit your shell environment**, so the URL and token are
 > baked into the plist's `EnvironmentVariables` at install time. Re-run
@@ -215,6 +233,9 @@ The installer will:
 
 To build the venv from a non-default base interpreter, set
 `AVAILCAL_BASE_PYTHON=/path/to/python3` before running `install.sh`.
+
+> **Never run `install.sh` (or any of these commands) under `sudo`.** It sends
+> the job and the calendar grant to root and breaks both. Everything runs as you.
 
 ### Step 8 — Verify it's running
 
