@@ -243,7 +243,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
         const name = (env.OWNER_NAME ?? '').trim();
         const cfg: BookingPageCfg = {
           owner: env.BOOKING_OWNER_EMAIL ?? '',
-          title: env.BOOKING_TITLE ?? 'Meeting',
+          title: env.BOOKING_TITLE ?? (name ? `Meeting with ${name}` : 'Meeting'),
           flavor: env.BOOKING_OUTLOOK_FLAVOR ?? 'office',
           tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
           durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
@@ -413,7 +413,7 @@ function esc(s: string): string {
 // Bump this whenever the UI changes. It is shown (tiny) in the footer so you can
 // confirm at a glance WHICH build a page is actually serving — ending any
 // "is this the old cached version?" ambiguity.
-const BUILD_TAG = 'b15 · 2026-06-24 layout+viewfix';
+const BUILD_TAG = 'b16 · 2026-06-24 modal-polish';
 
 /** Build the © footer HTML from env (empty when no owner configured). */
 function buildFooter(env: Env): string {
