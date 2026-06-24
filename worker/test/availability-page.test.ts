@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { availabilityHtml } from '../src/availability-page';
+import { availabilityHtml, SHARED_CSS } from '../src/availability-page';
 
 describe('availabilityHtml', () => {
-  const html = availabilityHtml({ title: 'Find a time with Mendel', fallbackTz: 'America/Los_Angeles' });
+  const html = availabilityHtml({
+    title: 'Find a time with Mendel',
+    fallbackTz: 'America/Los_Angeles',
+    footer: '<footer>© 2026 Mendel Grabski. All rights reserved.</footer>',
+  });
 
   it('shows the personalised title and a month-calendar picker', () => {
     expect(html).toContain('Find a time with Mendel');
@@ -12,5 +16,19 @@ describe('availabilityHtml', () => {
     expect(html).toContain('createPicker(');
     expect(html).toContain('/slots.json?');
     expect(html).toContain('/book?from=');
+  });
+
+  it('injects the optional footer', () => {
+    expect(html).toContain('© 2026 Mendel Grabski. All rights reserved.');
+  });
+
+  it('stacks times vertically (not alongside the calendar)', () => {
+    // The times list is a single vertical column with full-width chips.
+    expect(SHARED_CSS).toMatch(/\.times\s*\{[^}]*flex-direction:\s*column/);
+    expect(SHARED_CSS).toMatch(/\.times \.chip\s*\{[^}]*width:\s*100%/);
+  });
+
+  it('has a mobile breakpoint', () => {
+    expect(SHARED_CSS).toContain('@media (max-width:620px)');
   });
 });

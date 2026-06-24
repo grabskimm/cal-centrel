@@ -38,6 +38,7 @@ export function labelColor(label: string): string {
 export interface CalendarPageCfg {
   title: string;
   fallbackTz: string;
+  footer?: string;
 }
 
 export function calendarHtml(cfg: CalendarPageCfg): string {
@@ -58,14 +59,15 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .legend { display:flex; flex-wrap:wrap; gap:.6rem; margin:.8rem .2rem 0; font-size:.8rem; color:var(--muted); }
   .legend .k { display:inline-flex; align-items:center; gap:.35rem; }
   .legend .sw { width:.8rem; height:.8rem; border-radius:3px; display:inline-block; }
-  .grid { display:grid; grid-template-columns: 3.2rem repeat(7, 1fr); border:1px solid var(--line);
-    border-radius:12px; overflow:hidden; background:#fff; margin-top:.8rem; }
+  .grid { display:grid; grid-template-columns: 3.2rem repeat(7, minmax(5.2rem, 1fr)); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; background:#fff; margin-top:.8rem; min-width:680px; }
   .grid .head { background:#f8fafc; border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
     font-size:.78rem; font-weight:600; }
   .grid .head.today { color:var(--brand); }
   .gutcell { border-bottom:1px dashed var(--line); height:44px; font-size:.66rem; color:var(--muted);
     text-align:right; padding-right:.3rem; }
-  .scroll { max-height:70vh; overflow:auto; }
+  .scroll { max-height:70vh; overflow:auto; -webkit-overflow-scrolling:touch; border-radius:12px; }
+  .hint { color:var(--muted); font-size:.75rem; margin:.4rem .2rem 0; }
   .colbody { position:relative; border-left:1px solid var(--line); }
   .hourline { height:44px; border-bottom:1px dashed var(--line); }
   .ev { position:absolute; left:2px; right:2px; border-radius:6px; color:#fff; padding:2px 5px;
@@ -76,6 +78,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
 </head>
 <body>
   <header class="hero">
+    <a class="home" href="/book">⌂ Booking</a>
     <h1>${cfg.title}</h1>
     <p>Your busy times across every calendar. Gaps are free.</p>
   </header>
@@ -99,6 +102,8 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
     </div>
     <div id="status" style="margin:.8rem .2rem;color:var(--muted);font-size:.85rem;">Loading…</div>
     <div class="scroll"><div class="grid" id="grid"></div></div>
+    <p class="hint">Tip: swipe horizontally to see the full week on small screens.</p>
+    ${cfg.footer ?? ''}
   </div>
 
 <script>

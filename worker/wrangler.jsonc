@@ -71,6 +71,9 @@
     // Your name personalises headings: "Book a time with <OWNER_NAME>",
     // "Find a time with <OWNER_NAME>". Leave empty to use generic wording.
     "OWNER_NAME": "Mendel",
+    // Footer: "© <year> <FOOTER_OWNER>. All rights reserved. · <site link>".
+    "FOOTER_OWNER": "Mendel Grabski",
+    "OWNER_SITE_URL": "https://mendelg.tech",
     // Optional explicit override for the public page title; when empty, OWNER_NAME
     // drives it.
     "PUBLIC_PAGE_TITLE": "",

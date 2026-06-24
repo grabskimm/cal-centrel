@@ -73,6 +73,8 @@ export interface Env {
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
   OWNER_NAME?: string; // personalises headings, e.g. "Book a time with Mendel"
+  FOOTER_OWNER?: string; // legal name for the © footer, e.g. "Mendel Grabski"
+  OWNER_SITE_URL?: string; // linked from the footer, e.g. https://mendelg.tech
 }
 
 const MERGED_KEY = 'merged/availability.ics';
@@ -188,6 +190,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
         const html = availabilityHtml({
           title: env.PUBLIC_PAGE_TITLE || (name ? `Find a time with ${name}` : 'Find a time that works'),
           fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
+          footer: buildFooter(env),
         });
         return new Response(html, {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
@@ -216,6 +219,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
           tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
           durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
           heading: name ? `Book a time with ${name}` : 'Book a time',
+          footer: buildFooter(env),
           fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
           slotsBase: '', // same origin
         };
@@ -256,6 +260,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     const html = calendarHtml({
       title: calName ? `${calName}'s calendar` : 'My calendar',
       fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
+      footer: buildFooter(env),
     });
     return new Response(html, {
       headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -319,6 +324,22 @@ function jsonResponse(body: unknown, status = 200, extra: Record<string, string>
 
 function isoDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+function esc(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
+}
+
+/** Build the © footer HTML from env (empty when no owner configured). */
+function buildFooter(env: Env): string {
+  const owner = (env.FOOTER_OWNER ?? env.OWNER_NAME ?? '').trim();
+  if (!owner) return '';
+  const year = new Date().getUTCFullYear();
+  const url = (env.OWNER_SITE_URL ?? '').trim();
+  const link = url
+    ? ` · <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url.replace(/^https?:\/\//, ''))}</a>`
+    : '';
+  return `<footer>© ${year} ${esc(owner)}. All rights reserved.${link}</footer>`;
 }
 
 /**
