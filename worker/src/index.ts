@@ -148,86 +148,97 @@ export default {
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // --- PUBLIC host: token-free, read-only scheduling surface ---
-    // Only anonymized reads are reachable here; the token feed, overlays,
-    // uploads, and /run are all unreachable, so the public hostname can never
-    // expose labels or accept writes.
-    if (env.PUBLIC_FEED_HOST && url.hostname === env.PUBLIC_FEED_HOST) {
-      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-      if (request.method === 'GET') {
-        if (path === '/') {
-          return new Response(DEMO_HTML, {
-            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
-          });
-        }
-        if (path === '/availability.ics') return serveObject(env, PUBLIC_KEY);
-        if (path === '/freebusy.json') {
-          return serveObject(env, PUBLIC_FREEBUSY_KEY, 'application/json; charset=utf-8', CORS);
-        }
-        if (path === '/slots.json') return handleSlots(url, env);
-        if (path === '/book') {
-          const cfg: BookingPageCfg = {
-            owner: env.BOOKING_OWNER_EMAIL ?? '',
-            title: env.BOOKING_TITLE ?? 'Meeting',
-            flavor: env.BOOKING_OUTLOOK_FLAVOR ?? 'office',
-            tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
-            durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
-            slotsBase: '', // same origin
-          };
-          return new Response(bookingHtml(cfg), {
-            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
-          });
-        }
-      }
-      return new Response('not found', { status: 404, headers: CORS });
+    const res = await routeRequest(request, env);
+    // HTTP semantics: a HEAD response carries headers but no body.
+    if (request.method === 'HEAD') {
+      return new Response(null, { status: res.status, headers: res.headers });
     }
-
-    // --- serve the merged feed ---
-    if (request.method === 'GET' && path === '/availability.ics') {
-      const token = url.searchParams.get('token') ?? '';
-      if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
-      return serveObject(env, MERGED_KEY);
-    }
-
-    // --- serve a per-source overlay ---
-    if (request.method === 'GET' && RAW_ICS_RE.test(path)) {
-      const token = url.searchParams.get('token') ?? '';
-      if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
-      return serveObject(env, path.slice(1));
-    }
-
-    // --- device-agent upload ---
-    if (request.method === 'PUT' && RAW_JSON_RE.test(path)) {
-      const tok = bearer(request);
-      if (!tok || !safeEqual(tok, env.AGENT_TOKEN)) return new Response('unauthorized', { status: 401 });
-      const key = path.slice(1); // raw/<source>.json
-      await env.AVAILCAL_BUCKET.put(key, request.body, {
-        httpMetadata: { contentType: 'application/json' },
-      });
-      return new Response(JSON.stringify({ status: 'ok', key }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    // --- manual trigger (admin) ---
-    if (request.method === 'POST' && path === '/run') {
-      const tok = bearer(request);
-      if (!tok || !safeEqual(tok, env.RUN_TOKEN)) return new Response('unauthorized', { status: 401 });
-      const resp = await triggerMerge(env);
-      return new Response(await resp.text(), {
-        status: resp.status,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (path === '/health') return new Response('ok');
-    return new Response('not found', { status: 404 });
+    return res;
   },
 };
+
+async function routeRequest(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  // Treat HEAD like GET for routing (clients probe feeds with HEAD).
+  const isRead = request.method === 'GET' || request.method === 'HEAD';
+
+  // --- PUBLIC host: token-free, read-only scheduling surface ---
+  // Only anonymized reads are reachable here; the token feed, overlays,
+  // uploads, and /run are all unreachable, so the public hostname can never
+  // expose labels or accept writes.
+  if (env.PUBLIC_FEED_HOST && url.hostname === env.PUBLIC_FEED_HOST) {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    if (isRead) {
+      if (path === '/') {
+        return new Response(DEMO_HTML, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+        });
+      }
+      if (path === '/availability.ics') return serveObject(env, PUBLIC_KEY);
+      if (path === '/freebusy.json') {
+        return serveObject(env, PUBLIC_FREEBUSY_KEY, 'application/json; charset=utf-8', CORS);
+      }
+      if (path === '/slots.json') return handleSlots(url, env);
+      if (path === '/book') {
+        const cfg: BookingPageCfg = {
+          owner: env.BOOKING_OWNER_EMAIL ?? '',
+          title: env.BOOKING_TITLE ?? 'Meeting',
+          flavor: env.BOOKING_OUTLOOK_FLAVOR ?? 'office',
+          tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
+          durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
+          slotsBase: '', // same origin
+        };
+        return new Response(bookingHtml(cfg), {
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+        });
+      }
+    }
+    return new Response('not found', { status: 404, headers: CORS });
+  }
+
+  // --- serve the merged feed ---
+  if (isRead && path === '/availability.ics') {
+    const token = url.searchParams.get('token') ?? '';
+    if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
+    return serveObject(env, MERGED_KEY);
+  }
+
+  // --- serve a per-source overlay ---
+  if (isRead && RAW_ICS_RE.test(path)) {
+    const token = url.searchParams.get('token') ?? '';
+    if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
+    return serveObject(env, path.slice(1));
+  }
+
+  // --- device-agent upload ---
+  if (request.method === 'PUT' && RAW_JSON_RE.test(path)) {
+    const tok = bearer(request);
+    if (!tok || !safeEqual(tok, env.AGENT_TOKEN)) return new Response('unauthorized', { status: 401 });
+    const key = path.slice(1); // raw/<source>.json
+    await env.AVAILCAL_BUCKET.put(key, request.body, {
+      httpMetadata: { contentType: 'application/json' },
+    });
+    return new Response(JSON.stringify({ status: 'ok', key }), {
+      status: 201,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // --- manual trigger (admin) ---
+  if (request.method === 'POST' && path === '/run') {
+    const tok = bearer(request);
+    if (!tok || !safeEqual(tok, env.RUN_TOKEN)) return new Response('unauthorized', { status: 401 });
+    const resp = await triggerMerge(env);
+    return new Response(await resp.text(), {
+      status: resp.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (path === '/health') return new Response('ok');
+  return new Response('not found', { status: 404 });
+}
 
 async function serveObject(
   env: Env,
