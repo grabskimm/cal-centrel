@@ -92,7 +92,9 @@ export const SHARED_CSS = `
   .calhead button { border:1px solid var(--line); background:#fff; border-radius:10px; width:2.2rem; height:2.2rem;
     cursor:pointer; font-size:1.1rem; color:var(--ink); transition:background .15s; }
   .calhead button:hover { background:#f4f5fb; }
-  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:.28rem; }
+  /* minmax(0,1fr) (not 1fr) so the aspect-ratio cells can shrink — otherwise the
+     7th column (Saturday) overflows the card and gets clipped. */
+  .cal { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.28rem; }
   .cal-dow { text-align:center; font-size:.64rem; font-weight:800; letter-spacing:.04em; color:var(--muted); padding:.2rem 0; }
   .cal-cell { aspect-ratio:1; border:0; border-radius:11px; background:transparent; font:inherit; font-weight:700;
     color:var(--ink); display:flex; align-items:center; justify-content:center; cursor:default; transition:transform .08s, background .15s, color .15s; }
@@ -124,7 +126,6 @@ export const SHARED_CSS = `
     .field { width:100%; } .field select, .field input { min-width:0; width:100%; }
     .grow { flex-basis:100%; }
     a.book { margin-left:0; width:100%; justify-content:center; }
-    .row { grid-template-columns:1fr; }
     .sheet { border-radius:16px 16px 0 0; align-self:flex-end; }
     .modal { align-items:flex-end; padding:0; }
   }
@@ -132,17 +133,25 @@ export const SHARED_CSS = `
   .modal { position:fixed; inset:0; background:rgba(11,16,32,.45); display:flex; align-items:center;
     justify-content:center; padding:1rem; z-index:50; animation:fade .15s ease; }
   .modal[hidden]{ display:none; }
-  .sheet { background:#fff; border-radius:18px; max-width:30rem; width:100%; padding:1.3rem 1.3rem 1.5rem;
-    box-shadow:0 30px 80px rgba(2,6,23,.35); position:relative; animation:pop .18s ease; }
-  .sheet h3 { margin:.2rem 0 .1rem; font-size:1.15rem; }
+  .sheet { background:#fff; border-radius:20px; max-width:24rem; width:100%; padding:1.6rem 1.5rem 1.4rem;
+    box-shadow:0 30px 80px rgba(2,6,23,.35); position:relative; animation:pop .18s ease; text-align:center; }
   .sheet .x { position:absolute; top:.6rem; right:.7rem; border:0; background:transparent; font-size:1.4rem;
     color:var(--muted); cursor:pointer; line-height:1; }
-  .seg { display:flex; align-items:center; gap:.6rem; margin:1rem 0 .6rem; color:var(--muted); font-size:.74rem;
-    text-transform:uppercase; letter-spacing:.06em; font-weight:700; }
-  .seg::before, .seg::after { content:""; flex:1; height:1px; background:var(--line); }
-  .row { display:grid; grid-template-columns:1fr 1fr; gap:.55rem; }
-  .row .btn { width:100%; justify-content:center; }
-  .row .btn.full { grid-column:1 / -1; }
+  .sheet .x:hover { color:var(--ink); }
+  .mhead { width:3.1rem; height:3.1rem; margin:.1rem auto .6rem; display:flex; align-items:center; justify-content:center;
+    color:#fff; border-radius:16px; background:linear-gradient(135deg,var(--brand),var(--brand2));
+    box-shadow:0 10px 22px rgba(99,102,241,.4); }
+  .sheet h3 { margin:0 0 .15rem; font-size:1.25rem; letter-spacing:-.01em; }
+  .msub { margin:0 0 .9rem; color:var(--muted); font-size:.9rem; }
+  .mwhen { display:inline-block; margin:0 auto 1.1rem; background:var(--chip); color:var(--chipink);
+    font-weight:700; font-size:.9rem; padding:.45rem .9rem; border-radius:99px; }
+  .cal-row { display:flex; flex-direction:column; gap:.55rem; text-align:left; }
+  .cal-row .btn { width:100%; justify-content:flex-start; gap:.75rem; padding:.8rem 1rem; font-weight:700;
+    background:#fff; border:1px solid var(--line); color:var(--ink); box-shadow:0 1px 2px rgba(2,6,23,.04); }
+  .cal-row .btn:hover { border-color:var(--brand); background:#fafbff; transform:translateY(-1px);
+    box-shadow:0 8px 18px rgba(99,102,241,.15); }
+  .cal-row .btn .ico { display:inline-flex; width:1.3rem; justify-content:center; }
+  .mfoot { color:var(--muted); font-size:.74rem; margin:1.05rem 0 0; }
   @keyframes fade { from{opacity:0} to{opacity:1} }
   @keyframes pop { from{opacity:0; transform:translateY(8px) scale(.98)} to{opacity:1; transform:none} }
 `;

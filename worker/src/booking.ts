@@ -65,9 +65,14 @@ export function bookingHtml(cfg: BookingPageCfg): string {
   <div id="modal" class="modal" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mtitle">
       <button class="x" id="x" aria-label="Close">×</button>
-      <h3 id="mtitle">Add to your calendar</h3>
-      <p class="muted" id="mwhen" style="margin:.1rem 0 0"></p>
-      <div class="row" id="cal-row" style="margin-top:.6rem"></div>
+      <div class="mhead" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/><path d="m9 14 2 2 4-4"/></svg>
+      </div>
+      <h3 id="mtitle">You're all set</h3>
+      <p class="msub">Add it to your calendar</p>
+      <p class="mwhen" id="mwhen"></p>
+      <div class="cal-row" id="cal-row"></div>
+      <p class="mfoot">Opens in your calendar app — nothing is sent to anyone.</p>
     </div>
   </div>
 
@@ -104,11 +109,17 @@ const fmtTime = (s, tz) => new Date(s).toLocaleTimeString([], { hour:'numeric', 
 const fmtDayLabel = (s, tz) => new Date(s).toLocaleDateString([], { weekday:'long', month:'long', day:'numeric', timeZone: tz });
 
 function linkBtn(text, href, opts) {
-  const a=document.createElement('a'); a.className='btn '+(opts.cls||'btn-ghost'); a.textContent=text; a.href=href;
+  const a=document.createElement('a'); a.className='btn '+(opts.cls||'btn-ghost'); a.href=href;
+  if (opts.icon) { const i=document.createElement('span'); i.className='ico'; i.innerHTML=opts.icon; a.appendChild(i); }
+  a.appendChild(document.createTextNode(text));
   if (opts.download) a.download='booking.ics'; else { a.target='_blank'; a.rel='noopener'; }
   if (opts.full) a.classList.add('full');
   return a;
 }
+// Simple brand-ish glyphs for the calendar choices (kept inline; no external assets).
+const ICON_GOOGLE = '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="#4285F4" d="M22 12.2c0-.7-.06-1.4-.18-2.06H12v3.9h5.6a4.8 4.8 0 0 1-2.08 3.15v2.6h3.36C20.84 18 22 15.4 22 12.2z"/><path fill="#34A853" d="M12 22c2.7 0 4.97-.9 6.63-2.43l-3.36-2.6c-.93.62-2.12.98-3.27.98-2.52 0-4.65-1.7-5.42-3.98H3.1v2.5A10 10 0 0 0 12 22z"/><path fill="#FBBC05" d="M6.58 13.37a6 6 0 0 1 0-3.83v-2.5H3.1a10 10 0 0 0 0 8.83l3.48-2.5z"/><path fill="#EA4335" d="M12 6.06c1.47 0 2.78.5 3.82 1.5l2.86-2.86A10 10 0 0 0 3.1 7.04l3.48 2.5C7.35 7.27 9.48 6.06 12 6.06z"/></svg>';
+const ICON_OUTLOOK = '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="#0A66C2" d="M14 4.5h6.2c.44 0 .8.36.8.8v13.4c0 .44-.36.8-.8.8H14V4.5z"/><path fill="#0A66C2" opacity=".5" d="M14 7.8l7 4v-.7l-7-4z"/><path fill="#1A73E8" d="M2 6.2 12.5 4.3c.3-.05.5.16.5.46v14.48c0 .3-.2.51-.5.46L2 17.8V6.2z"/><path fill="#fff" d="M7.3 9.1c-1.7 0-2.7 1.3-2.7 3 0 1.7 1 2.95 2.66 2.95 1.7 0 2.7-1.27 2.7-3.02C9.96 10.3 8.98 9.1 7.3 9.1zm-.02 1.3c.83 0 1.3.7 1.3 1.68 0 1-.47 1.68-1.3 1.68-.8 0-1.3-.7-1.3-1.7 0-.97.5-1.66 1.3-1.66z"/></svg>';
+const ICON_ICS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>';
 
 function openModal(s, tz) {
  try {
@@ -120,9 +131,9 @@ function openModal(s, tz) {
 
   $('mwhen').textContent = when;
   const cr = $('cal-row'); cr.innerHTML='';
-  cr.appendChild(linkBtn('Google Calendar', googleCalendarUrl(s, cfg), {}));
-  cr.appendChild(linkBtn('Outlook Calendar', outlookComposeUrl(s, cfg, CFG.flavor), {}));
-  cr.appendChild(linkBtn('Download .ics (Apple/other)', icsUrl, { download:true, full:true }));
+  cr.appendChild(linkBtn('Google Calendar', googleCalendarUrl(s, cfg), { icon: ICON_GOOGLE }));
+  cr.appendChild(linkBtn('Outlook Calendar', outlookComposeUrl(s, cfg, CFG.flavor), { icon: ICON_OUTLOOK }));
+  cr.appendChild(linkBtn('Apple / Download .ics', icsUrl, { download:true, icon: ICON_ICS }));
 
   // Force visibility explicitly — don't rely solely on the [hidden] attribute /
   // CSS, which is the kind of thing that can silently no-op in some setups.
