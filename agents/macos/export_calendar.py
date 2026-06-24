@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""AvailCal macOS agent: read the local calendar store via EventKit and emit
+privacy-safe busy JSON, optionally uploading it to a write-scoped blob.
+
+Only ``{source, start, end, status}`` leaves the machine. Free events are dropped
+at the source; titles, notes, attendees and locations are never read.
+
+FAIL-LOUD CONTRACT: an un-granted EventKit returns **zero events silently**,
+which would publish a falsely-empty "totally free" feed. So we assert the
+authorization state is full access and that calendars exist, and exit non-zero
+otherwise. See agents/macos/README.md for the TCC grant step.
+
+Requires macOS 14+ and PyObjC (``pip install pyobjc-framework-EventKit``).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import threading
+import urllib.request
+from datetime import UTC, datetime
+from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - py<3.11
+    tomllib = None  # type: ignore
+
+try:
+    from EventKit import EKEntityTypeEvent, EKEventStore
+    from Foundation import NSDate
+except ImportError:  # pragma: no cover - non-mac / missing PyObjC
+    EKEventStore = None  # type: ignore
+
+
+# EKEventAvailability -> AvailCal status. Free is dropped at the source.
+# EKEventAvailabilityNotSupported = -1, Busy = 0, Free = 1, Tentative = 2,
+# Unavailable = 3.
+_AVAILABILITY_TO_STATUS = {
+    -1: "busy",   # NotSupported: calendar can't express availability -> assume busy
+    0: "busy",    # Busy
+    1: None,      # Free -> drop
+    2: "tentative",
+    3: "oof",     # Unavailable ~ out of office
+}
+
+# EKAuthorizationStatus.fullAccess (macOS 14+) == 3.
+_AUTH_FULL_ACCESS = 3
+
+
+def die(msg: str) -> None:
+    print(f"AvailCal macOS agent FAILED: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def slugify(raw: str) -> str:
+    import re
+
+    s = re.sub(r"\W+", "_", raw.strip()).strip("_")
+    return s or "Unknown"
+
+
+def load_device_labels(path: str) -> dict[str, str]:
+    """Read the [device] section of sources.toml: calendar title -> label."""
+    p = Path(path)
+    if not p.exists() or tomllib is None:
+        print(f"warning: sources.toml not read ({path}); labels will be slugified.",
+              file=sys.stderr)
+        return {}
+    data = tomllib.loads(p.read_text())
+    return dict(data.get("device", {}))
+
+
+def resolve_label(labels: dict[str, str], title: str) -> str:
+    if title in labels:
+        return labels[title]
+    slug = slugify(title)
+    print(f"warning: unmapped calendar {title!r} -> {slug!r}; add it to [device] "
+          f"in sources.toml.", file=sys.stderr)
+    return slug
+
+
+def request_full_access(store) -> int:
+    """Request full calendar access (macOS 14+) and return the auth status.
+
+    The completion handler fires on a background queue; we block on an event.
+    """
+    done = threading.Event()
+    box: dict[str, object] = {}
+
+    def handler(granted, error):  # noqa: ANN001
+        box["granted"] = bool(granted)
+        box["error"] = error
+        done.set()
+
+    store.requestFullAccessToEventsWithCompletion_(handler)
+    if not done.wait(timeout=60):
+        die("timed out waiting for calendar access prompt.")
+    # Whatever the user clicked, read the authoritative status afterwards.
+    return EKEventStore.authorizationStatusForEntityType_(EKEntityTypeEvent)
+
+
+def nsdate_to_utc_iso(nsdate) -> str:
+    """Convert an EventKit NSDate to a UTC ISO-8601 string with offset."""
+    ts = nsdate.timeIntervalSince1970()
+    return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def collect_busy(store, labels: dict[str, str], horizon_days: int) -> list[dict]:
+    now = NSDate.date()
+    end = NSDate.dateWithTimeIntervalSinceNow_(horizon_days * 24 * 3600)
+
+    calendars = store.calendarsForEntityType_(EKEntityTypeEvent)
+    if not calendars or len(calendars) == 0:
+        die("EventKit returned zero calendars. Access likely not granted "
+            "(System Settings > Privacy & Security > Calendars).")
+
+    predicate = store.predicateForEventsWithStartDate_endDate_calendars_(
+        now, end, calendars
+    )
+    events = store.eventsMatchingPredicate_(predicate)
+
+    out: list[dict] = []
+    for ev in events:
+        status = _AVAILABILITY_TO_STATUS.get(int(ev.availability()), "busy")
+        if status is None:
+            continue  # free
+        cal_title = ev.calendar().title()
+        out.append({
+            "source": resolve_label(labels, str(cal_title)),
+            "start": nsdate_to_utc_iso(ev.startDate()),
+            "end": nsdate_to_utc_iso(ev.endDate()),
+            "status": status,
+        })
+    return out
+
+
+def upload(sas_url: str, payload: bytes, token: str | None = None) -> None:
+    headers = {"Content-Type": "application/json"}
+    # Azure Blob needs x-ms-blob-type; an R2/S3 presigned PUT must NOT receive an
+    # unsigned header that could break its signature, so add it only for Azure.
+    if "blob.core.windows.net" in sas_url:
+        headers["x-ms-blob-type"] = "BlockBlob"
+    # When uploading via the Cloudflare Worker endpoint (PUT /raw/<src>.json),
+    # authenticate with a Bearer token instead of a signed URL.
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(sas_url, data=payload, method="PUT", headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - https URL
+        if resp.status not in (200, 201):
+            die(f"upload returned HTTP {resp.status}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="AvailCal macOS calendar exporter")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print JSON, upload nothing")
+    ap.add_argument("--sas-url", default=os.environ.get("AVAILCAL_AGENT_SAS_URL", ""),
+                    help="write-scoped upload URL: Azure SAS, R2 presigned PUT, or "
+                         "Cloudflare Worker /raw/<src>.json (or AVAILCAL_AGENT_SAS_URL)")
+    ap.add_argument("--token", default=os.environ.get("AVAILCAL_AGENT_TOKEN", ""),
+                    help="Bearer token for the Cloudflare Worker upload endpoint "
+                         "(or AVAILCAL_AGENT_TOKEN)")
+    ap.add_argument("--sources-toml", default="./sources.toml")
+    ap.add_argument("--horizon-days", type=int, default=90)
+    args = ap.parse_args(argv)
+
+    if EKEventStore is None:
+        die("EventKit/PyObjC not available. Run: "
+            "pip install pyobjc-framework-EventKit (macOS 14+).")
+
+    if not args.dry_run and not args.sas_url:
+        die("no --sas-url and AVAILCAL_AGENT_SAS_URL is empty (required unless --dry-run).")
+
+    labels = load_device_labels(args.sources_toml)
+
+    store = EKEventStore.alloc().init()
+    status = request_full_access(store)
+    if status != _AUTH_FULL_ACCESS:
+        die(f"full calendar access NOT granted (authorization status={status}). "
+            "Grant it in System Settings > Privacy & Security > Calendars, then retry. "
+            "Refusing to publish a possibly-empty feed.")
+
+    busy = collect_busy(store, labels, args.horizon_days)
+    payload = json.dumps(busy, indent=2).encode("utf-8")
+
+    if not busy:
+        print(f"warning: 0 busy events in the next {args.horizon_days} days. "
+              "Verify this is correct.", file=sys.stderr)
+
+    if args.dry_run:
+        print(payload.decode("utf-8"))
+        print(f"\n# DRY RUN: parsed {len(busy)} busy interval(s). Nothing uploaded.")
+        return 0
+
+    upload(args.sas_url, payload, token=args.token or None)
+    print(f"Uploaded {len(busy)} busy interval(s).")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,53 @@
+[project]
+name = "availcal"
+version = "0.1.0"
+description = "Aggregate calendar availability from many accounts into one private free/busy ICS feed."
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "icalendar==7.2.0",
+    "recurring-ical-events==3.8.2",
+    "httpx==0.28.1",
+    # Cloudflare R2 (S3-compatible) storage backend.
+    "boto3==1.43.36",
+    # Azure Blob storage backend (alternative to R2).
+    "azure-storage-blob==12.24.0",
+    "azure-identity==1.19.0",
+    "azure-keyvault-secrets==4.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.15.18",
+]
+
+[project.scripts]
+availcal = "availcal.main:main"
+availcal-server = "availcal.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E,F,W = pyflakes/pycodestyle; I = isort; UP = pyupgrade; B = bugbear;
+# DTZ = flake8-datetimez — the gate that catches naive datetime usage.
+select = ["E", "F", "W", "I", "UP", "B", "DTZ"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests intentionally construct fixed aware datetimes; DTZ001/DTZ005 not relevant there.
+"tests/*" = ["DTZ001", "DTZ005"]

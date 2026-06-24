@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets / environment
+.env
+*.env
+!.env.example
+sources.toml
+!sources.example.toml
+*.sas
+*.pem
+
+# vdirsyncer output (synced CalDAV data)
+vdir/
+.vdirsyncer/
+merge/vdir/
+
+# Emitted ICS artifacts (never commit real calendar data)
+availability.ics
+*.local.ics
+out/
+output/
+
+# Node / Cloudflare Worker
+node_modules/
+.wrangler/
+worker/.dev.vars
+!worker/.dev.vars.example
+worker/worker-configuration.d.ts
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

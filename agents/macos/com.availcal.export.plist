@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.availcal.export</string>
+
+    <!-- install.sh rewrites these paths to your actual install location. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>__INSTALL_DIR__/export_calendar.py</string>
+        <string>--sources-toml</string>
+        <string>__INSTALL_DIR__/sources.toml</string>
+    </array>
+
+    <!-- Run hourly. -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!-- Also run shortly after load/login so the first feed appears promptly. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- SAS URL injected from the user keychain/env; never hard-coded here. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>AVAILCAL_AGENT_SAS_URL</key>
+        <string>__SAS_URL__</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__INSTALL_DIR__/export.log</string>
+    <key>StandardErrorPath</key>
+    <string>__INSTALL_DIR__/export.err.log</string>
+
+    <!-- A non-zero exit (fail-loud) is recorded in export.err.log for alerting. -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

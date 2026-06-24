@@ -1,0 +1,84 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "availcal",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The merge job runs as a Cloudflare Container built from the merge/ image.
+  // Wrangler builds the Dockerfile (context = merge/) and pushes it to the
+  // Cloudflare registry on deploy. Requires a plan with Containers (Enterprise).
+  "containers": [
+    {
+      "class_name": "MergeContainer",
+      "image": "../merge/Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 1
+    }
+  ],
+
+  // The Container is fronted by a Durable Object.
+  "durable_objects": {
+    "bindings": [{ "name": "MERGE_CONTAINER", "class_name": "MergeContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MergeContainer"] }],
+
+  // R2 bucket for /raw and /merged objects (create it first; see infra/cloudflare).
+  "r2_buckets": [{ "binding": "AVAILCAL_BUCKET", "bucket_name": "availcal" }],
+
+  // Hourly merge.
+  "triggers": { "crons": ["0 * * * *"] },
+
+  // Custom domains (Enterprise). Uncomment and set hostnames on a zone in this
+  // Cloudflare account; `wrangler deploy` provisions DNS + TLS and maps each
+  // whole hostname to this Worker. Leave commented until the zone exists.
+  //
+  //   availcal.mendelg.tech       -> private token feed + uploads + /run
+  //   availability.mendelg.tech   -> PUBLIC anonymized feed only (see below)
+  //
+  // The *.workers.dev URL keeps working alongside custom domains.
+  "routes": [
+    { "pattern": "availcal.mendelg.tech", "custom_domain": true },
+    { "pattern": " availability.mendelg.tech", "custom_domain": true }
+  ],
+
+  // Non-secret config. Secrets (tokens, feed URLs, R2 creds) are set with
+  // `wrangler secret put` — see worker/README.md.
+  "vars": {
+    "AVAILCAL_DEFAULT_TZ": "America/Los_Angeles",
+    "AVAILCAL_HORIZON_DAYS": "90",
+    "AVAILCAL_INCLUDE_TENTATIVE": "true",
+    "AVAILCAL_R2_BUCKET": "availcal",
+
+    // Public anonymized feed. Set AVAILCAL_EMIT_PUBLIC=true to have the merge job
+    // write public/availability.ics + public/freebusy.json, and PUBLIC_FEED_HOST
+    // to the hostname that serves them WITHOUT a token. Empty host = not exposed.
+    "AVAILCAL_EMIT_PUBLIC": "true",
+    "PUBLIC_FEED_HOST": "availability.mendelg.tech",
+
+    // Scheduling. Working hours are the OWNER's, interpreted in SCHEDULE_WORK_TZ
+    // (the viewer's chosen zone only affects how times are displayed). Default
+    // 08:00-18:00 Eastern, weekdays, 30-min slots.
+    "SCHEDULE_SLOT_MINUTES": "30",
+    "SCHEDULE_WORK_START": "08:00",
+    "SCHEDULE_WORK_END": "18:00",
+    "SCHEDULE_WORK_TZ": "America/New_York",
+    "SCHEDULE_DAYS": "1-5",
+    "SCHEDULE_MAX_RANGE_DAYS": "62",
+
+    // Public page heading + the timezone fallback when a viewer's local zone
+    // can't be resolved.
+    "PUBLIC_PAGE_TITLE": "Find a time that works",
+    "CALENDAR_FALLBACK_TZ": "America/Los_Angeles",
+
+    // Booking page at /book on the public host (universal .ics + Google + Outlook
+    // links). BOOKING_OWNER_EMAIL = the mailbox added as guest/invitee.
+    // BOOKING_OUTLOOK_FLAVOR picks the Outlook quick-link: "office" (M365) or
+    // "live" (personal outlook.com).
+    "BOOKING_OWNER_EMAIL": "mendel@mendelg.tech",
+    "BOOKING_TITLE": "Meeting",
+    "BOOKING_OUTLOOK_FLAVOR": "office"
+  },
+
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,30 @@
+# AvailCal source registry.
+#
+# ONE place defines every source-calendar label. Both the merge job and the
+# local agents read this file. Each raw input — an ICS feed key, a CalDAV
+# account, or a device store/calendar name — maps to exactly ONE single-word
+# label. That label becomes the event SUMMARY and CATEGORIES in the merged
+# feed, so the owner can tell which calendar each busy block came from.
+#
+# Rules (validated at startup, fail-fast):
+#   * every label matches ^\w+$ (one token, no spaces)
+#   * labels are unique across the whole file (no two raw inputs share a label
+#     unless you truly want them merged as one source)
+#   * an unmapped raw source is slugified to one word and logged as needing an
+#     entry here.
+
+# Secret-ICS / published-ICS feeds. Key = the rawname used in AVAILCAL_ICS_FEEDS.
+[ics]
+GoogPersonal = "Perso"
+OutlookPub   = "Work"
+
+# CalDAV accounts synced by vdirsyncer. Key = vdirsyncer collection/account name.
+[caldav]
+icloud_calendar   = "iCloud"
+fastmail_calendar = "Fastmail"
+
+# Device-bound agents. Key = the raw OS store/calendar name the agent emits.
+# The agent sends the raw name; the registry maps it to the label here.
+[device]
+"Calendar"        = "Mac"
+"Outlook - Work"  = "WorkX"
