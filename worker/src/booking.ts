@@ -48,8 +48,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
       <div class="controls">
         <div class="field tzfield">
           <label for="tz">Time zone</label>
-          <input id="tz" list="tz-list" autocomplete="off" spellcheck="false" placeholder="Search time zone…" />
-          <datalist id="tz-list"></datalist>
+          <select id="tz"></select>
         </div>
         <div class="field grow"><label for="title">Subject</label><input type="text" id="title" /></div>
       </div>
