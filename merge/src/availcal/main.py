@@ -17,6 +17,7 @@ Secrets (feed URLs, CalDAV passwords) come from env, or from Key Vault when
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -36,6 +37,7 @@ from .emit import (
 from .merge import merge_intervals
 from .models import BusyInterval
 from .normalize import normalize_calendar
+from .notify import compute_additions, serialize_added
 from .pull import (
     fetch_ics_feeds,
     load_raw_json,
@@ -45,6 +47,7 @@ from .pull import (
 )
 from .sources import SourceRegistry, load_sources, load_sources_str
 from .storage import (
+    ADDED_OBJECT,
     MERGED_BUSY_OBJECT,
     MERGED_OBJECT,
     PUBLIC_FREEBUSY_OBJECT,
@@ -262,6 +265,7 @@ def write_outputs(
     public_ics: bytes | None = None,
     public_json: bytes | None = None,
     merged_busy_json: bytes | None = None,
+    added_json: bytes | None = None,
 ) -> list[str]:
     """Write merged + optional per-source + optional public feeds to the backend.
 
@@ -278,6 +282,8 @@ def write_outputs(
         written.append(
             backend.upload(MERGED_BUSY_OBJECT, merged_busy_json, "application/json")
         )
+    if added_json is not None:
+        written.append(backend.upload(ADDED_OBJECT, added_json, "application/json"))
     if public_ics is not None:
         written.append(backend.upload(PUBLIC_OBJECT, public_ics))
     if public_json is not None:
@@ -320,8 +326,23 @@ def run(cfg: Config) -> list[str]:
     # the owner's calendar view.
     merged_busy_json = emit_merged_busy_json(merged)
 
+    # New-event notifications: diff the fresh busy blocks against the PREVIOUS
+    # snapshot (before write_outputs overwrites it) and carry the running list
+    # of additions for the calendar view to show. Skipped with no backend.
+    added_json: bytes | None = None
+    backend = make_backend(cfg)
+    if backend is not None:
+        added = compute_additions(
+            prev_busy=backend.download(MERGED_BUSY_OBJECT),
+            current_busy=json.loads(merged_busy_json),
+            existing_added=backend.download(ADDED_OBJECT),
+            now=now_utc(),
+        )
+        added_json = serialize_added(added)
+        log.info("notifications: %d new busy block(s) tracked", len(added))
+
     written = write_outputs(
-        cfg, merged_ics, per_source, public_ics, public_json, merged_busy_json
+        cfg, merged_ics, per_source, public_ics, public_json, merged_busy_json, added_json
     )
     log.info("wrote %d output(s): %s", len(written), ", ".join(written))
     return written

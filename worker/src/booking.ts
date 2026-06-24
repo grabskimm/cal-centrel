@@ -1,14 +1,12 @@
 /**
  * Provider-agnostic booking page served at `/book` on the public host. Reads
  * AvailCal's /slots.json (owner working hours, only free times). Selecting a slot
- * opens a modal that LAUNCHES the booker's preferred app prefilled with the time:
- * email the request via Gmail / Outlook / the default Mail app, or add it to
- * Google / Outlook calendar, or download a universal .ics. No write credential,
- * no backend — AvailCal stays read-only. Times show in a tz the visitor picks.
+ * opens a modal that adds the time to the visitor's calendar: Google / Outlook
+ * calendar, or a universal .ics download. No write credential, no backend —
+ * AvailCal stays read-only. Times show in a tz the visitor picks.
  */
 import { CALENDAR_PICKER_JS, escapeHtml, SHARED_CSS, TZ_PICKER_JS } from './availability-page';
 import { googleCalendarUrl, icsContent, outlookComposeUrl } from './calendar-links';
-import { gmailComposeUrl, mailtoUrl, outlookMailUrl } from './email-links';
 
 export interface BookingPageCfg {
   owner: string; // owner email (invitee/guest + email recipient)
@@ -52,12 +50,12 @@ export function bookingHtml(cfg: BookingPageCfg): string {
         <div class="field grow"><label for="title">Subject</label><input type="text" id="title" /></div>
       </div>
       <div class="booklayout">
-        <div class="calbox">
+        <section class="card calcard">
           <div class="calhead"><button id="prev" aria-label="Previous month">‹</button>
             <span class="ml" id="ml"></span><button id="next" aria-label="Next month">›</button></div>
           <div class="cal" id="cal"></div>
-        </div>
-        <div class="timescol" id="times"></div>
+        </section>
+        <section class="card timecard"><div class="timescol" id="times"></div></section>
       </div>
     </div>
     <div id="status"></div>
@@ -67,12 +65,9 @@ export function bookingHtml(cfg: BookingPageCfg): string {
   <div id="modal" class="modal" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mtitle">
       <button class="x" id="x" aria-label="Close">×</button>
-      <h3 id="mtitle">Finish booking</h3>
+      <h3 id="mtitle">Add to your calendar</h3>
       <p class="muted" id="mwhen" style="margin:.1rem 0 0"></p>
-      <div class="seg">Email the request</div>
-      <div class="row" id="email-row"></div>
-      <div class="seg">or add to your calendar</div>
-      <div class="row" id="cal-row"></div>
+      <div class="row" id="cal-row" style="margin-top:.6rem"></div>
     </div>
   </div>
 
@@ -87,13 +82,10 @@ ${CALENDAR_PICKER_JS}
 // shim so the embedded copies run. (Without this, icsContent() throws
 // "__name is not defined" on click and the booking modal never opens.)
 var __name = function (f) { return f; };
-// Embedded verbatim (single source of truth) from calendar-links.ts/email-links.ts.
+// Embedded verbatim (single source of truth) from calendar-links.ts.
 const googleCalendarUrl = ${googleCalendarUrl.toString()};
 const outlookComposeUrl = ${outlookComposeUrl.toString()};
 const icsContent = ${icsContent.toString()};
-const gmailComposeUrl = ${gmailComposeUrl.toString()};
-const outlookMailUrl = ${outlookMailUrl.toString()};
-const mailtoUrl = ${mailtoUrl.toString()};
 
 const $ = (id) => document.getElementById(id);
 const tzSel=$('tz'), titleEl=$('title'), statusEl=$('status'), modal=$('modal');
@@ -122,20 +114,11 @@ function openModal(s, tz) {
  try {
   const subject = titleEl.value || CFG.title || 'Meeting';
   const when = fmtDayLabel(s.start, tz) + ' · ' + fmtTime(s.start, tz) + '–' + fmtTime(s.end, tz) + ' (' + tz + ')';
-  const body = "Hi,\\n\\nI'd like to book \\"" + subject + "\\" on " + when + ".\\n\\nThanks!";
   const cfg = { owner: CFG.owner, title: subject };
   if (icsUrl) URL.revokeObjectURL(icsUrl);
   icsUrl = URL.createObjectURL(new Blob([icsContent(s, cfg)], { type:'text/calendar;charset=utf-8' }));
 
   $('mwhen').textContent = when;
-  const er = $('email-row'); er.innerHTML='';
-  if (CFG.owner) {
-    er.appendChild(linkBtn('Gmail', gmailComposeUrl(CFG.owner, 'Booking request: '+subject, body), { cls:'btn-primary' }));
-    er.appendChild(linkBtn('Outlook', outlookMailUrl(CFG.owner, 'Booking request: '+subject, body, CFG.flavor), { cls:'btn-primary' }));
-    er.appendChild(linkBtn('Default mail app', mailtoUrl(CFG.owner, 'Booking request: '+subject, body), { full:true }));
-  } else {
-    er.innerHTML = '<p class="muted" style="grid-column:1/-1;margin:0">No contact email configured.</p>';
-  }
   const cr = $('cal-row'); cr.innerHTML='';
   cr.appendChild(linkBtn('Google Calendar', googleCalendarUrl(s, cfg), {}));
   cr.appendChild(linkBtn('Outlook Calendar', outlookComposeUrl(s, cfg, CFG.flavor), {}));
@@ -173,6 +156,10 @@ async function load() {
     cache = (await res.json()).slots || [];
     statusEl.textContent = cache.length ? '' : 'No open times right now. Check back soon.';
     picker.refresh();
+    // Came from the availability page with a specific slot (?at=ISO)? Open its
+    // booking options straight away — no need to pick the same time twice.
+    const at = new URLSearchParams(location.search).get('at');
+    if (at) { const slot = cache.find((x)=>x.start===at); if (slot) openModal(slot, tzSel.value); }
   } catch (e) { statusEl.textContent='Could not load: '+e.message; }
 }
 

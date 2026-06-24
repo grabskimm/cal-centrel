@@ -93,7 +93,7 @@
     // CONTACT_API_KEY` (never put it here). With no key, /contact still renders
     // and falls back to a mailto: link to BOOKING_OWNER_EMAIL.
     "CONTACT_TO": "mendel@mendelg.tech",
-    "CONTACT_FROM": "contact@mendelg.tech",
+    "CONTACT_FROM": "availcal@mendelg.tech",
     "CONTACT_PROVIDER": "resend",
 
     // Cloudflare Access SSO for the private /calendar (and the /busy.json it

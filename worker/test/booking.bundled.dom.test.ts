@@ -72,6 +72,6 @@ describe('booking page (Wrangler-bundled, keepNames)', () => {
     expect(pageError).toBeNull(); // no "__name is not defined"
     expect(modal.hidden).toBe(false); // modal actually opened
     expect(doc.querySelectorAll('#cal-row a').length).toBe(3); // Google/Outlook/.ics
-    expect(doc.querySelectorAll('#email-row a').length).toBe(3); // Gmail/Outlook/mail
+    expect(doc.getElementById('email-row')).toBeNull(); // email-request row removed
   });
 });

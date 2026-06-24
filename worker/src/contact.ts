@@ -64,7 +64,10 @@ export async function sendContact(env: ContactEnv, msg: ContactMessage): Promise
           content: [{ type: 'text/plain', value: text }],
         }),
       });
-      return res.ok ? { ok: true } : { ok: false, error: `Mail provider error (${res.status}).` };
+      if (res.ok) return { ok: true };
+      const detail = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+      console.warn(`contact: sendgrid ${res.status} from=${from} to=${to} ${detail.slice(0, 400)}`);
+      return { ok: false, error: `Mail provider error (${res.status}).` };
     }
     // Default: Resend (https://resend.com) — single POST, clean from Workers.
     const res = await fetch('https://api.resend.com/emails', {
@@ -72,8 +75,14 @@ export async function sendContact(env: ContactEnv, msg: ContactMessage): Promise
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to: [to], subject, text, reply_to: msg.email }),
     });
-    return res.ok ? { ok: true } : { ok: false, error: `Mail provider error (${res.status}).` };
-  } catch {
+    if (res.ok) return { ok: true };
+    // Surface Resend's real reason in the Workers logs — almost always an
+    // unverified sender domain or a bad API key, which a bare status hides.
+    const detail = typeof res.text === 'function' ? await res.text().catch(() => '') : '';
+    console.warn(`contact: resend ${res.status} from=${from} to=${to} ${detail.slice(0, 400)}`);
+    return { ok: false, error: `Mail provider error (${res.status}).` };
+  } catch (e) {
+    console.warn(`contact: provider fetch threw: ${e instanceof Error ? e.message : e}`);
     return { ok: false, error: 'Could not reach the mail provider.' };
   }
 }

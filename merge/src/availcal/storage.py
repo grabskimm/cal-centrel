@@ -26,6 +26,9 @@ log = logging.getLogger("availcal.storage")
 MERGED_OBJECT = "merged/availability.ics"
 # Merged, source-LABELED busy blocks as JSON (private; backs the calendar view).
 MERGED_BUSY_OBJECT = "merged/busy.json"
+# Newly-added busy blocks since the previous run (private; backs the calendar
+# view's "new events" notifications). Each entry carries a firstSeen timestamp.
+ADDED_OBJECT = "merged/added.json"
 # Fully-anonymized public feed (no source labels); served without a token.
 PUBLIC_OBJECT = "public/availability.ics"
 # Same anonymized data as JSON, for webpage fetch()/scheduling.
@@ -39,6 +42,10 @@ class StorageBackend(Protocol):
 
     def upload(self, name: str, data: bytes, content_type: str = "text/calendar") -> str:
         """Write ``data`` at object key ``name`` (overwriting). Return its locator."""
+        ...
+
+    def download(self, name: str) -> bytes | None:
+        """Return the bytes at object key ``name``, or None if it doesn't exist."""
         ...
 
     def iter_raw_json(self) -> Iterable[tuple[str, bytes]]:
@@ -57,6 +64,10 @@ class LocalStorageBackend:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return str(path)
+
+    def download(self, name: str) -> bytes | None:
+        path = self.root / name
+        return path.read_bytes() if path.is_file() else None
 
     def iter_raw_json(self) -> Iterable[tuple[str, bytes]]:
         raw = self.root / RAW_PREFIX
@@ -118,6 +129,17 @@ class R2StorageBackend:
         )
         return f"r2://{self.bucket}/{name}"
 
+    def download(self, name: str) -> bytes | None:
+        from botocore.exceptions import ClientError
+
+        try:
+            return self._client.get_object(Bucket=self.bucket, Key=name)["Body"].read()
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"NoSuchKey", "404", "NotFound"}:
+                return None
+            raise
+
     def iter_raw_json(self) -> Iterable[tuple[str, bytes]]:
         paginator = self._client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=self.bucket, Prefix=RAW_PREFIX):
@@ -173,6 +195,14 @@ class AzureBlobBackend:
             content_settings=ContentSettings(content_type=content_type),
         )
         return name
+
+    def download(self, name: str) -> bytes | None:
+        from azure.core.exceptions import ResourceNotFoundError
+
+        try:
+            return self._container.download_blob(name).readall()
+        except ResourceNotFoundError:
+            return None
 
     def iter_raw_json(self) -> Iterable[tuple[str, bytes]]:
         for blob in self._container.list_blobs(name_starts_with=RAW_PREFIX):

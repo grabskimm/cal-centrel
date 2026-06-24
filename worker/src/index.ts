@@ -93,6 +93,7 @@ export interface Env {
 
 const MERGED_KEY = 'merged/availability.ics';
 const MERGED_BUSY_KEY = 'merged/busy.json';
+const ADDED_KEY = 'merged/added.json';
 const PUBLIC_KEY = 'public/availability.ics';
 const PUBLIC_FREEBUSY_KEY = 'public/freebusy.json';
 const RAW_ICS_RE = /^\/raw\/[A-Za-z0-9_]+\.ics$/;
@@ -305,6 +306,21 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     return serveObject(env, MERGED_BUSY_KEY, 'application/json; charset=utf-8');
   }
 
+  // --- newly-added busy blocks since the last run (backs the "new events"
+  // notifications on the calendar view) — same auth as /busy.json. Returns an
+  // empty list until the merge job has written one. ---
+  if (isRead && path === '/notifications.json') {
+    const token = url.searchParams.get('token') ?? '';
+    if (!safeEqual(token, env.FEED_TOKEN) && !(await verifyAccessJwt(request, env))) {
+      return new Response('forbidden', { status: 403 });
+    }
+    const obj = await env.AVAILCAL_BUCKET.get(ADDED_KEY);
+    const body = obj ? obj.body : '[]';
+    return new Response(body, {
+      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+  }
+
   // --- owner's calendar view ---
   // Token in the URL OR Cloudflare Access SSO (so the token can be dropped once
   // Access fronts /calendar). The page re-uses whatever got it here for /busy.json.
@@ -319,7 +335,8 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
       title: calName ? `${calName}'s calendar` : 'My calendar',
       fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
       footer: buildFooter(env),
-      // The booking + contact pages live on the PUBLIC host, so link absolutely.
+      // The home + booking + contact pages live on the PUBLIC host, so link absolutely.
+      homeHref: base || undefined,
       bookHref: base ? `${base}/book` : undefined,
       contactHref: contactHref(env) || undefined,
     });
@@ -394,7 +411,7 @@ function esc(s: string): string {
 // Bump this whenever the UI changes. It is shown (tiny) in the footer so you can
 // confirm at a glance WHICH build a page is actually serving — ending any
 // "is this the old cached version?" ambiguity.
-const BUILD_TAG = 'b12 · 2026-06-24 access-sso-on';
+const BUILD_TAG = 'b14 · 2026-06-24 new-event-notifs';
 
 /** Build the © footer HTML from env (empty when no owner configured). */
 function buildFooter(env: Env): string {
