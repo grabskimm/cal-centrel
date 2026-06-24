@@ -19,10 +19,11 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -166,9 +167,11 @@ def collect_busy(store, labels: dict[str, str], horizon_days: int) -> list[dict]
 def upload(sas_url: str, payload: bytes, token: str | None = None,
            cf_access_client_id: str | None = None,
            cf_access_client_secret: str | None = None) -> None:
-    # A descriptive User-Agent. The urllib default ("Python-urllib/3.x") is a
-    # known-bot signature that Cloudflare Bot Fight Mode / WAF blocks with a 403
-    # *before* the request reaches Access or the Worker (so neither logs it).
+    # The upload is sent via the system `curl`, NOT Python's urllib. Cloudflare
+    # Bot Fight Mode / Bot Management fingerprints the TLS/HTTP client and blocks
+    # stdlib urllib with a 403 at the edge — before Access or the Worker, so
+    # neither logs it — while curl's fingerprint is allowed. (Changing the
+    # User-Agent does not help; the block is on the connection fingerprint.)
     headers = {"Content-Type": "application/json",
                "User-Agent": "AvailCal-macos-agent/1.0"}
     # Azure Blob needs x-ms-blob-type; an R2/S3 presigned PUT must NOT receive an
@@ -179,39 +182,43 @@ def upload(sas_url: str, payload: bytes, token: str | None = None,
     # authenticate with a Bearer token instead of a signed URL.
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    # If the Worker's host is fronted by Cloudflare Access (Zero Trust), a machine
-    # can't do the SSO login, so it authenticates with an Access *service token*.
-    # Access validates these at the edge and forwards the request to the Worker
-    # (which still checks the Bearer AGENT_TOKEN). Without them Access returns 403.
+    # Optional Cloudflare Access service token, only if the Worker host is fronted
+    # by Access (Zero Trust); harmless when it isn't.
     if cf_access_client_id and cf_access_client_secret:
         headers["CF-Access-Client-Id"] = cf_access_client_id
         headers["CF-Access-Client-Secret"] = cf_access_client_secret
-    # Diagnostic (no secrets): records which auth the agent actually sent, so the
-    # launchd run's export.err.log shows whether the Access service token reached
-    # python. A missing cf-access here while the Worker shows no logs == Access
-    # blocked the request at the edge (403) because the headers weren't sent.
+
     print(
-        f"upload: PUT {sas_url} "
+        f"upload: PUT {sas_url} via curl "
         f"[bearer={'yes' if token else 'no'}, "
         f"cf-access={'yes' if (cf_access_client_id and cf_access_client_secret) else 'no'}]",
         file=sys.stderr,
     )
-    req = urllib.request.Request(sas_url, data=payload, method="PUT", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - https URL
-            if resp.status not in (200, 201):
-                die(f"upload returned HTTP {resp.status}")
-    except urllib.error.HTTPError as exc:
-        # Surface WHO rejected us. A Cloudflare WAF/Bot block and an Access block
-        # both 403 but look different in the body + cf-* headers; the Worker only
-        # ever returns 401/201 on this path. Print enough to stop the guessing.
-        body = exc.read().decode("utf-8", "replace")[:1000] if exc.fp else ""
-        cf_ray = exc.headers.get("cf-ray", "-")
-        cf_mit = exc.headers.get("cf-mitigated", "-")
-        server = exc.headers.get("server", "-")
+
+    curl = shutil.which("curl") or "/usr/bin/curl"
+    cmd = [curl, "-sS", "--max-time", "30", "-X", "PUT"]
+    for key, value in headers.items():
+        cmd += ["-H", f"{key}: {value}"]
+    # Read the body from stdin (--data-binary @-) so size/bytes are never a
+    # concern; capture the HTTP status via -w and the response body via -o.
+    cmd += ["--data-binary", "@-", "-w", "%{http_code}"]
+    with tempfile.NamedTemporaryFile() as body_file:
+        cmd += ["-o", body_file.name, sas_url]
+        try:
+            proc = subprocess.run(cmd, input=payload, capture_output=True, timeout=45)
+        except FileNotFoundError:
+            die("curl not found (expected /usr/bin/curl on macOS).")
+        except subprocess.TimeoutExpired:
+            die("upload timed out after 45s (curl).")
+        status = proc.stdout.decode("utf-8", "replace").strip()
+        body = body_file.read().decode("utf-8", "replace")[:1000]
+
+    if proc.returncode != 0 and status in ("", "000"):
+        # Transport-level failure (DNS/TLS/connection), not an HTTP status.
+        die(f"upload failed to connect via curl: {proc.stderr.decode('utf-8', 'replace').strip()}")
+    if status not in ("200", "201"):
         sent = ", ".join(sorted(headers))  # names only, never values
-        die(f"upload failed: HTTP {exc.code} {exc.reason}\n"
-            f"  server={server} cf-ray={cf_ray} cf-mitigated={cf_mit}\n"
+        die(f"upload failed: HTTP {status}\n"
             f"  request headers sent: {sent}\n"
             f"  response body: {body!r}")
 

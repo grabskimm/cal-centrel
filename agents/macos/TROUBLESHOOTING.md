@@ -220,10 +220,22 @@ The status code tells you **which** layer rejected the upload:
 env**, so the token must be baked into the plist — re-run `install.sh` (no sudo)
 with the correct `AVAILCAL_AGENT_SAS_URL` and `AVAILCAL_AGENT_TOKEN`.
 
-**`403 Forbidden`** — **Cloudflare Access** blocked it at the edge, before the
-Worker (the Worker never returns 403 on the upload path — only 401/201). The
-`availcal.<domain>` host is behind Access SSO, which a machine can't complete.
-Fix with a **service token**:
+**`403 Forbidden` with NO Worker logs AND NO Access logs** — the block is at
+Cloudflare's edge **before** both layers, so neither logs it. Two distinct causes:
+
+- **Bot Fight Mode / Bot Management** (most common): Cloudflare fingerprints the
+  HTTP/TLS client and blocks Python's stdlib `urllib` as "automated" — even
+  though `curl` with the *same* token/URL returns 201, and changing the
+  User-Agent does nothing (the block is on the connection fingerprint, not the
+  UA). **The agent already mitigates this by sending the upload via `curl`**
+  (which Cloudflare allows) instead of urllib. If you still see it, exempt the
+  path: a WAF custom rule that **Skips** Super Bot Fight Mode / managed rules for
+  `http.request.uri.path starts_with "/raw/"` (the Worker still enforces the
+  token), or turn Bot Fight Mode off for that hostname.
+- **Cloudflare Access** (only if Access actually fronts the host): Access SSO,
+  which a machine can't complete. Confirm by testing whether a bearer-token-only
+  `curl` succeeds — if it 201s, Access is **not** gating `/raw/` and you don't
+  need a service token. If it 403s, add a **service token**:
 
 1. Cloudflare **Zero Trust → Access → Service Auth → Service Tokens** → create
    one; copy the Client ID + Client Secret.

@@ -305,13 +305,19 @@ export AVAILCAL_AGENT_TOKEN="…the worker AGENT_TOKEN…"
 ./venv/bin/python export_calendar.py --sources-toml ./sources.toml
 ```
 
-#### If the private host is behind Cloudflare Access (Zero Trust)
+> **Note:** the upload is sent via the system **`curl`**, not Python's urllib.
+> Cloudflare Bot Fight Mode / Bot Management fingerprints the HTTP/TLS client and
+> blocks stdlib urllib with a **403 at the edge** (before Access or the Worker, so
+> neither logs it), while curl is allowed. This is handled for you; you don't need
+> to do anything. If a 403 persists, see TROUBLESHOOTING.md (exempt `/raw/` from
+> Bot Fight Mode).
 
-The `availcal.<domain>` host is typically fronted by **Cloudflare Access**, which
-requires an SSO login. A machine can't do that, so an upload with only the Bearer
-token is rejected at the edge with **HTTP 403** (note: the Worker itself returns
-**401** for a bad token — a 403 means Access blocked it before the Worker). Give
-the agent a **service token**:
+#### Only if the private host is *also* behind Cloudflare Access (Zero Trust)
+
+Test first: if a **bearer-token-only `curl` PUT returns 201**, Access is **not**
+gating `/raw/` and you can skip this section. If it returns **403** (and a
+service-token curl returns 201), the host is fronted by **Cloudflare Access**,
+which a machine can't SSO into. Give the agent a **service token**:
 
 1. In **Cloudflare Zero Trust → Access → Service Auth → Service Tokens**, create a
    token. Copy the **Client ID** and **Client Secret**.
