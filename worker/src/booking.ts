@@ -6,7 +6,7 @@
  * Google / Outlook calendar, or download a universal .ics. No write credential,
  * no backend — AvailCal stays read-only. Times show in a tz the visitor picks.
  */
-import { SHARED_CSS, TZ_PICKER_JS } from './availability-page';
+import { CALENDAR_PICKER_JS, escapeHtml, SHARED_CSS, TZ_PICKER_JS } from './availability-page';
 import { googleCalendarUrl, icsContent, outlookComposeUrl } from './calendar-links';
 import { gmailComposeUrl, mailtoUrl, outlookMailUrl } from './email-links';
 
@@ -16,6 +16,7 @@ export interface BookingPageCfg {
   flavor: string; // 'office' | 'live'
   tz: string;
   durationMin: string;
+  heading: string; // hero heading, e.g. "Book a time with Mendel"
   fallbackTz?: string;
   slotsBase?: string; // origin for /slots.json ('' = same origin)
 }
@@ -33,20 +34,25 @@ export function bookingHtml(cfg: BookingPageCfg): string {
 </head>
 <body>
   <header class="hero">
-    <h1>Book a time</h1>
-    <p>Pick an open slot, then finish in your calendar or email — Apple, Google, or Outlook.</p>
+    <h1>${escapeHtml(cfg.heading)}</h1>
+    <p>Choose a day, then a time. Shown in your time zone.</p>
   </header>
   <div class="wrap">
     <div class="panel">
       <div class="controls">
         <div class="field grow"><label for="tz">Time zone</label><select id="tz"></select></div>
-        <div class="field"><label for="from">From</label><input type="date" id="from" /></div>
-        <div class="field"><label for="to">To</label><input type="date" id="to" /></div>
         <div class="field grow"><label for="title">Subject</label><input type="text" id="title" /></div>
       </div>
+      <div class="booklayout">
+        <div class="calbox">
+          <div class="calhead"><button id="prev" aria-label="Previous month">‹</button>
+            <span class="ml" id="ml"></span><button id="next" aria-label="Next month">›</button></div>
+          <div class="cal" id="cal"></div>
+        </div>
+        <div class="timescol" id="times"></div>
+      </div>
     </div>
-    <div id="status">Loading…</div>
-    <div id="out"></div>
+    <div id="status"></div>
   </div>
 
   <div id="modal" class="modal" hidden>
@@ -64,6 +70,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
 <script>
 const CFG = ${cfgJson};
 ${TZ_PICKER_JS}
+${CALENDAR_PICKER_JS}
 // Embedded verbatim (single source of truth) from calendar-links.ts/email-links.ts.
 const googleCalendarUrl = ${googleCalendarUrl.toString()};
 const outlookComposeUrl = ${outlookComposeUrl.toString()};
@@ -73,19 +80,13 @@ const outlookMailUrl = ${outlookMailUrl.toString()};
 const mailtoUrl = ${mailtoUrl.toString()};
 
 const $ = (id) => document.getElementById(id);
-const tzSel=$('tz'), fromEl=$('from'), toEl=$('to'), titleEl=$('title');
-const out=$('out'), statusEl=$('status'), modal=$('modal');
+const tzSel=$('tz'), titleEl=$('title'), statusEl=$('status'), modal=$('modal');
 let cache=[], icsUrl=null;
 
 buildTzPicker(tzSel, CFG.fallbackTz);
-const isoDate = (d) => d.toISOString().slice(0,10);
-const today = new Date();
-fromEl.value = isoDate(today);
-toEl.value = isoDate(new Date(today.getTime()+14*864e5));
 titleEl.value = CFG.title || 'Meeting';
 
 const fmtTime = (s, tz) => new Date(s).toLocaleTimeString([], { hour:'numeric', minute:'2-digit', timeZone: tz });
-const fmtDayKey = (s, tz) => new Date(s).toLocaleDateString('en-CA', { timeZone: tz });
 const fmtDayLabel = (s, tz) => new Date(s).toLocaleDateString([], { weekday:'long', month:'long', day:'numeric', timeZone: tz });
 
 function linkBtn(text, href, opts) {
@@ -124,46 +125,25 @@ $('x').addEventListener('click', closeModal);
 modal.addEventListener('click', (e)=>{ if (e.target===modal) closeModal(); });
 document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') closeModal(); });
 
-function render() {
-  const tz = tzSel.value;
-  out.innerHTML='';
-  if (!cache.length) { out.innerHTML='<div class="empty">No open times in this range.</div>'; return; }
-  const byDay = new Map();
-  for (const s of cache) {
-    const k = fmtDayKey(s.start, tz);
-    if (!byDay.has(k)) byDay.set(k, { label: fmtDayLabel(s.start, tz), slots: [] });
-    byDay.get(k).slots.push(s);
-  }
-  for (const { label, slots } of byDay.values()) {
-    const day=document.createElement('div'); day.className='day';
-    const h=document.createElement('h2'); h.textContent=label; day.appendChild(h);
-    const chips=document.createElement('div'); chips.className='chips';
-    for (const s of slots) {
-      const b=document.createElement('button'); b.className='chip'; b.type='button';
-      b.textContent=fmtTime(s.start, tz);
-      b.addEventListener('click', ()=>openModal(s, tz));
-      chips.appendChild(b);
-    }
-    day.appendChild(chips); out.appendChild(day);
-  }
-}
+const picker = createPicker({
+  calEl:$('cal'), timesEl:$('times'), monthLabelEl:$('ml'), prevEl:$('prev'), nextEl:$('next'),
+  getTz: ()=>tzSel.value, getSlots: ()=>cache, onTime: (s, tz)=>openModal(s, tz),
+});
 
 async function load() {
   statusEl.textContent='Loading…';
   try {
-    const q = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+    const today = new Date(); const iso=(d)=>d.toISOString().slice(0,10);
+    const q = new URLSearchParams({ from: iso(today), to: iso(new Date(today.getTime()+60*864e5)) });
     const res = await fetch((CFG.slotsBase||'') + '/slots.json?' + q.toString());
     if (!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    cache = data.slots || [];
-    statusEl.textContent = cache.length ? (cache.length+' open times') : 'No open times in this range.';
-    render();
+    cache = (await res.json()).slots || [];
+    statusEl.textContent = cache.length ? '' : 'No open times right now. Check back soon.';
+    picker.refresh();
   } catch (e) { statusEl.textContent='Could not load: '+e.message; }
 }
 
-tzSel.addEventListener('change', render);
-fromEl.addEventListener('change', load);
-toEl.addEventListener('change', load);
+tzSel.addEventListener('change', ()=>picker.refresh());
 load();
 </script>
 </body>

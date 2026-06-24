@@ -63,6 +63,28 @@ export const SHARED_CSS = `
   a.chip { text-decoration:none; }
   .empty { text-align:center; color:var(--muted); padding:2.6rem 1rem; }
   footer { text-align:center; color:var(--muted); font-size:.78rem; margin-top:2.2rem; }
+  /* mini month-calendar picker */
+  .booklayout { display:grid; grid-template-columns: minmax(0, 19rem) 1fr; gap:1.4rem; align-items:start; }
+  @media (max-width:620px){ .booklayout { grid-template-columns:1fr; } }
+  .calhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:.6rem; }
+  .calhead .ml { font-weight:800; font-size:1rem; }
+  .calhead button { border:1px solid var(--line); background:#fff; border-radius:10px; width:2.2rem; height:2.2rem;
+    cursor:pointer; font-size:1.1rem; color:var(--ink); transition:background .15s; }
+  .calhead button:hover { background:#f4f5fb; }
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:.28rem; }
+  .cal-dow { text-align:center; font-size:.64rem; font-weight:800; letter-spacing:.04em; color:var(--muted); padding:.2rem 0; }
+  .cal-cell { aspect-ratio:1; border:0; border-radius:11px; background:transparent; font:inherit; font-weight:700;
+    color:var(--ink); display:flex; align-items:center; justify-content:center; cursor:default; transition:transform .08s, background .15s, color .15s; }
+  .cal-cell.empty { background:none; }
+  .cal-cell.off { color:#c4c8d4; }
+  .cal-cell.has { cursor:pointer; background:var(--chip); color:var(--chipink); }
+  .cal-cell.has:hover { background:var(--brand); color:#fff; }
+  .cal-cell.has:active { transform:translateY(1px); }
+  .cal-cell.sel { background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; box-shadow:0 6px 16px rgba(99,102,241,.4); }
+  .cal-cell.today:not(.sel) { box-shadow:inset 0 0 0 2px var(--accent); }
+  .times { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.3rem; }
+  .picked { font-weight:800; margin:.1rem .1rem .7rem; font-size:.98rem; }
+  .timescol { min-height:6rem; }
   /* modal */
   .modal { position:fixed; inset:0; background:rgba(11,16,32,.45); display:flex; align-items:center;
     justify-content:center; padding:1rem; z-index:50; animation:fade .15s ease; }
@@ -106,6 +128,62 @@ function buildTzPicker(selectEl, fallbackTz) {
 }
 `;
 
+// A reusable mini month-calendar picker: pick a date with openings -> times for
+// that date -> onTime(slot, tz). Shared by the availability and booking pages.
+// opts: { calEl, timesEl, monthLabelEl, prevEl, nextEl, getTz, getSlots, onTime }.
+// Returns { refresh } to call after slots load or the timezone changes.
+export const CALENDAR_PICKER_JS = `
+function createPicker(opts) {
+  var view=null, selKey=null;
+  var dkey=(iso,tz)=>new Date(iso).toLocaleDateString('en-CA',{timeZone:tz});
+  var ym=(y,m)=>y+'-'+String(m+1).padStart(2,'0');
+  function group(tz){ var m=new Map(); var ss=opts.getSlots()||[];
+    for(var i=0;i<ss.length;i++){ var k=dkey(ss[i].start,tz); if(!m.has(k))m.set(k,[]); m.get(k).push(ss[i]); } return m; }
+  function el(t,c,x){ var e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e; }
+  function renderMonth(tz, groups){
+    opts.monthLabelEl.textContent = new Date(view.y, view.m, 1).toLocaleDateString([], {month:'long', year:'numeric'});
+    var cal=opts.calEl; cal.innerHTML='';
+    ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(d=>cal.appendChild(el('div','cal-dow',d)));
+    var first=new Date(view.y, view.m, 1).getDay();
+    var dim=new Date(view.y, view.m+1, 0).getDate();
+    for(var i=0;i<first;i++) cal.appendChild(el('div','cal-cell empty',''));
+    var todayK=new Date().toLocaleDateString('en-CA',{timeZone:tz});
+    for(var day=1; day<=dim; day++){
+      var key=ym(view.y,view.m)+'-'+String(day).padStart(2,'0');
+      var cell=el('button','cal-cell',String(day)); cell.type='button';
+      if(key===todayK) cell.classList.add('today');
+      if(groups.has(key)){ cell.classList.add('has'); if(key===selKey) cell.classList.add('sel');
+        cell.addEventListener('click', (function(k){return function(){ selKey=k; renderMonth(tz,groups); renderTimes(tz,groups); };})(key));
+      } else { cell.classList.add('off'); cell.disabled=true; }
+      cal.appendChild(cell);
+    }
+  }
+  function renderTimes(tz, groups){
+    var t=opts.timesEl; t.innerHTML='';
+    if(!selKey || !groups.has(selKey)){ t.appendChild(el('div','empty','Select a highlighted date to see times.')); return; }
+    var slots=groups.get(selKey);
+    t.appendChild(el('div','picked', new Date(slots[0].start).toLocaleDateString([], {weekday:'long', month:'long', day:'numeric', timeZone:tz})));
+    var wrap=el('div','times','');
+    for(var i=0;i<slots.length;i++){ (function(s){
+      var b=el('button','chip', new Date(s.start).toLocaleTimeString([], {hour:'numeric', minute:'2-digit', timeZone:tz}));
+      b.type='button'; b.addEventListener('click', ()=>opts.onTime(s, tz)); wrap.appendChild(b);
+    })(slots[i]); }
+    t.appendChild(wrap);
+  }
+  function refresh(){
+    var tz=opts.getTz(); var groups=group(tz); var keys=[...groups.keys()].sort();
+    if(selKey && !groups.has(selKey)) selKey=null;
+    if(!selKey) selKey = keys[0] || null;
+    var base = selKey || keys[0] || new Date().toLocaleDateString('en-CA',{timeZone:tz});
+    var bp=base.split('-'); if(!view) view={y:+bp[0], m:+bp[1]-1};
+    renderMonth(tz, groups); renderTimes(tz, groups);
+  }
+  opts.prevEl.addEventListener('click', ()=>{ view={y: view.m===0?view.y-1:view.y, m:(view.m+11)%12}; renderMonth(opts.getTz(), group(opts.getTz())); });
+  opts.nextEl.addEventListener('click', ()=>{ view={y: view.m===11?view.y+1:view.y, m:(view.m+1)%12}; renderMonth(opts.getTz(), group(opts.getTz())); });
+  return { refresh: refresh };
+}
+`;
+
 export function availabilityHtml(cfg: AvailabilityPageCfg): string {
   const cfgJson = JSON.stringify(cfg);
   return `<!doctype html>
@@ -119,97 +197,61 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
 <body>
   <header class="hero">
     <h1>${escapeHtml(cfg.title)}</h1>
-    <p>Pick your time zone and a date range to see open times.</p>
+    <p>Choose a day, then a time. Shown in your time zone.</p>
   </header>
   <div class="wrap">
     <div class="panel">
       <div class="controls">
-        <div class="field grow">
-          <label for="tz">Time zone</label>
-          <select id="tz"></select>
+        <div class="field grow"><label for="tz">Time zone</label><select id="tz"></select></div>
+        <a class="btn btn-primary book" href="/book">Book a time →</a>
+      </div>
+      <div class="booklayout">
+        <div class="calbox">
+          <div class="calhead"><button id="prev" aria-label="Previous month">‹</button>
+            <span class="ml" id="ml"></span><button id="next" aria-label="Next month">›</button></div>
+          <div class="cal" id="cal"></div>
         </div>
-        <div class="field">
-          <label for="from">From</label>
-          <input type="date" id="from" />
-        </div>
-        <div class="field">
-          <label for="to">To</label>
-          <input type="date" id="to" />
-        </div>
-        <a class="btn btn-primary book" href="/book">Request a time →</a>
+        <div class="timescol" id="times"></div>
       </div>
     </div>
-    <div id="status">Loading…</div>
-    <div id="out"></div>
-    <footer>Times shown in your selected zone. Availability updates hourly.</footer>
+    <div id="status"></div>
+    <footer>Availability updates hourly.</footer>
   </div>
 
 <script>
 const CFG = ${cfgJson};
 ${TZ_PICKER_JS}
-const tzSel = document.getElementById('tz');
-const fromEl = document.getElementById('from');
-const toEl = document.getElementById('to');
-const out = document.getElementById('out');
-const statusEl = document.getElementById('status');
+${CALENDAR_PICKER_JS}
+const $ = (id) => document.getElementById(id);
+const tzSel=$('tz'), statusEl=$('status');
 let cache = [];
-
 buildTzPicker(tzSel, CFG.fallbackTz);
-const isoDate = (d) => d.toISOString().slice(0,10);
-const today = new Date();
-fromEl.value = isoDate(today);
-toEl.value = isoDate(new Date(today.getTime() + 14*864e5));
 
-const fmtTime = (s, tz) => new Date(s).toLocaleTimeString([], { hour:'numeric', minute:'2-digit', timeZone: tz });
-const fmtDayKey = (s, tz) => new Date(s).toLocaleDateString('en-CA', { timeZone: tz });
-const fmtDayLabel = (s, tz) => new Date(s).toLocaleDateString([], { weekday:'long', month:'long', day:'numeric', timeZone: tz });
-
-function render() {
-  const tz = tzSel.value;
-  out.innerHTML = '';
-  if (!cache.length) { out.innerHTML = '<div class="empty">No open times in this range. Try widening the dates.</div>'; return; }
-  const byDay = new Map();
-  for (const s of cache) {
-    const k = fmtDayKey(s.start, tz);
-    if (!byDay.has(k)) byDay.set(k, { label: fmtDayLabel(s.start, tz), slots: [] });
-    byDay.get(k).slots.push(s);
-  }
-  for (const { label, slots } of byDay.values()) {
-    const day = document.createElement('div'); day.className = 'day';
-    const h = document.createElement('h2'); h.textContent = label; day.appendChild(h);
-    const chips = document.createElement('div'); chips.className = 'chips';
-    for (const s of slots) {
-      const a = document.createElement('a'); a.className = 'chip';
-      a.textContent = fmtTime(s.start, tz);
-      a.href = '/book?from=' + encodeURIComponent(s.start.slice(0,10));
-      chips.appendChild(a);
-    }
-    day.appendChild(chips); out.appendChild(day);
-  }
-}
+const picker = createPicker({
+  calEl:$('cal'), timesEl:$('times'), monthLabelEl:$('ml'), prevEl:$('prev'), nextEl:$('next'),
+  getTz: ()=>tzSel.value, getSlots: ()=>cache,
+  onTime: (s)=>{ location.href = '/book?from=' + encodeURIComponent(s.start.slice(0,10)); },
+});
 
 async function load() {
   statusEl.textContent = 'Loading…';
   try {
-    const q = new URLSearchParams({ from: fromEl.value, to: toEl.value });
+    const today = new Date(); const iso=(d)=>d.toISOString().slice(0,10);
+    const q = new URLSearchParams({ from: iso(today), to: iso(new Date(today.getTime()+60*864e5)) });
     const res = await fetch('/slots.json?' + q.toString());
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    cache = data.slots || [];
-    statusEl.textContent = cache.length ? (cache.length + ' open times') : 'No open times in this range.';
-    render();
+    cache = (await res.json()).slots || [];
+    statusEl.textContent = cache.length ? '' : 'No open times right now. Check back soon.';
+    picker.refresh();
   } catch (e) { statusEl.textContent = 'Could not load availability: ' + e.message; }
 }
-
-tzSel.addEventListener('change', render);   // re-render only; slots are tz-independent
-fromEl.addEventListener('change', load);
-toEl.addEventListener('change', load);
+tzSel.addEventListener('change', ()=>picker.refresh());
 load();
 </script>
 </body>
 </html>`;
 }
 
-function escapeHtml(s: string): string {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 }

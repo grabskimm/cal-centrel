@@ -68,7 +68,12 @@
 
     // Public page heading + the timezone fallback when a viewer's local zone
     // can't be resolved.
-    "PUBLIC_PAGE_TITLE": "Find a time that works",
+    // Your name personalises headings: "Book a time with <OWNER_NAME>",
+    // "Find a time with <OWNER_NAME>". Leave empty to use generic wording.
+    "OWNER_NAME": "Mendel",
+    // Optional explicit override for the public page title; when empty, OWNER_NAME
+    // drives it.
+    "PUBLIC_PAGE_TITLE": "",
     "CALENDAR_FALLBACK_TZ": "America/Los_Angeles",
 
     // Booking page at /book on the public host (universal .ics + Google + Outlook

@@ -72,6 +72,7 @@ export interface Env {
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
+  OWNER_NAME?: string; // personalises headings, e.g. "Book a time with Mendel"
 }
 
 const MERGED_KEY = 'merged/availability.ics';
@@ -183,8 +184,9 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (isRead) {
       if (path === '/') {
+        const name = (env.OWNER_NAME ?? '').trim();
         const html = availabilityHtml({
-          title: env.PUBLIC_PAGE_TITLE ?? 'Find a time that works',
+          title: env.PUBLIC_PAGE_TITLE || (name ? `Find a time with ${name}` : 'Find a time that works'),
           fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
         });
         return new Response(html, {
@@ -206,12 +208,14 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
         });
       }
       if (path === '/book') {
+        const name = (env.OWNER_NAME ?? '').trim();
         const cfg: BookingPageCfg = {
           owner: env.BOOKING_OWNER_EMAIL ?? '',
           title: env.BOOKING_TITLE ?? 'Meeting',
           flavor: env.BOOKING_OUTLOOK_FLAVOR ?? 'office',
           tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
           durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
+          heading: name ? `Book a time with ${name}` : 'Book a time',
           fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
           slotsBase: '', // same origin
         };
@@ -248,8 +252,9 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
   if (isRead && path === '/calendar') {
     const token = url.searchParams.get('token') ?? '';
     if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
+    const calName = (env.OWNER_NAME ?? '').trim();
     const html = calendarHtml({
-      title: env.PUBLIC_PAGE_TITLE ? `${env.PUBLIC_PAGE_TITLE} · Calendar` : 'My calendar',
+      title: calName ? `${calName}'s calendar` : 'My calendar',
       fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
     });
     return new Response(html, {
