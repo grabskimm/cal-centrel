@@ -52,10 +52,14 @@ export const SHARED_CSS = `
     border:1px solid var(--line); border-radius:11px; background:#fff; min-width:11.5rem; transition:border-color .15s, box-shadow .15s; }
   .field select:focus, .field input:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 4px var(--ring); }
   .grow { flex:1 1 14rem; }
-  /* Compact, searchable timezone control — doesn't stretch wider than the
+  /* Compact, polished timezone dropdown — a real <select> (native dropdown +
+     type-ahead) with a custom chevron, sized so it never runs wider than the
      content beside/below it. */
   .field.tzfield { flex:0 0 auto; }
-  .field.tzfield input { width:13rem; min-width:0; }
+  .field.tzfield select { width:14rem; min-width:0; appearance:none; -webkit-appearance:none;
+    padding-right:2.1rem; cursor:pointer; font-weight:600;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right .7rem center; background-size:1rem; }
   .btn { display:inline-flex; align-items:center; gap:.45rem; border:0; cursor:pointer; font:inherit;
     font-weight:700; padding:.62rem 1rem; border-radius:11px; text-decoration:none; transition:transform .08s, filter .15s, box-shadow .15s; }
   .btn:active { transform:translateY(1px); }
@@ -128,7 +132,7 @@ export const SHARED_CSS = `
     .panel { margin-top:-2rem; padding:1rem; border-radius:14px; }
     .controls { gap:.7rem; }
     .field { width:100%; } .field select, .field input { min-width:0; width:100%; }
-    .field.tzfield, .field.tzfield input { width:100%; }
+    .field.tzfield, .field.tzfield select { width:100%; }
     .grow { flex-basis:100%; }
     a.book { margin-left:0; width:100%; justify-content:center; }
     .sheet { border-radius:16px 16px 0 0; align-self:flex-end; }
@@ -161,12 +165,11 @@ export const SHARED_CSS = `
   @keyframes pop { from{opacity:0; transform:translateY(8px) scale(.98)} to{opacity:1; transform:none} }
 `;
 
-// Populates a timezone picker with the browser's IANA zones and selects the
-// local one (or a fallback). Works with EITHER a <select> or a compact
-// searchable <input list="…"> + <datalist>; for the input it guards against
-// free-typed invalid zones (reverts and blocks the page's change handler).
+// Populates a <select id=tz> with the browser's IANA zones (grouped by region
+// for easy scanning) and selects the local one (or a fallback). Embedded into
+// pages that need the timezone picker.
 export const TZ_PICKER_JS = `
-function buildTzPicker(el, fallbackTz) {
+function buildTzPicker(selectEl, fallbackTz) {
   let zones = [];
   try { zones = Intl.supportedValuesOf ? Intl.supportedValuesOf('timeZone') : []; } catch (e) {}
   if (!zones.length) zones = ['America/Los_Angeles','America/Denver','America/Chicago',
@@ -176,32 +179,26 @@ function buildTzPicker(el, fallbackTz) {
   try { local = Intl.DateTimeFormat().resolvedOptions().timeZone || fallbackTz; } catch (e) {}
   if (!zones.includes(local)) zones = [local, ...zones];
 
-  if (el.tagName === 'SELECT') {
-    el.innerHTML = '';
-    for (const z of zones) {
+  selectEl.innerHTML = '';
+  // Put the detected local zone first under a "Detected" group for one-tap use.
+  const detected = document.createElement('optgroup'); detected.label = 'Detected';
+  const d = document.createElement('option'); d.value = local; d.textContent = local.replace(/_/g,' ');
+  d.selected = true; detected.appendChild(d); selectEl.appendChild(detected);
+  // Then every zone, grouped by region (Africa, America, Asia, …) for scanning.
+  const groups = {};
+  for (const z of zones) {
+    const region = z.includes('/') ? z.slice(0, z.indexOf('/')) : 'Other';
+    (groups[region] = groups[region] || []).push(z);
+  }
+  for (const region of Object.keys(groups).sort()) {
+    const og = document.createElement('optgroup'); og.label = region;
+    for (const z of groups[region]) {
       const o = document.createElement('option');
       o.value = z; o.textContent = z.replace(/_/g,' ');
-      if (z === local) o.selected = true;
-      el.appendChild(o);
+      og.appendChild(o);
     }
-    return local;
+    selectEl.appendChild(og);
   }
-
-  // Searchable input backed by a <datalist>.
-  const zoneSet = new Set(zones);
-  const list = el.getAttribute('list') ? document.getElementById(el.getAttribute('list')) : null;
-  if (list) {
-    list.innerHTML = '';
-    for (const z of zones) { const o = document.createElement('option'); o.value = z; o.label = z.replace(/_/g,' '); list.appendChild(o); }
-  }
-  el.value = local; el.dataset.tz = local;
-  el.addEventListener('change', function (e) {
-    if (zoneSet.has(el.value)) { el.dataset.tz = el.value; return; }
-    const m = zones.find((z) => z.toLowerCase() === el.value.toLowerCase() || z.replace(/_/g,' ').toLowerCase() === el.value.toLowerCase());
-    if (m) { el.value = m; el.dataset.tz = m; return; }
-    el.value = el.dataset.tz || local; // invalid free-text -> revert, don't re-render
-    e.stopImmediatePropagation();
-  });
   return local;
 }
 `;
@@ -292,8 +289,7 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
       <div class="controls">
         <div class="field tzfield">
           <label for="tz">Time zone</label>
-          <input id="tz" list="tz-list" autocomplete="off" spellcheck="false" placeholder="Search time zone…" />
-          <datalist id="tz-list"></datalist>
+          <select id="tz"></select>
         </div>
       </div>
       <div class="booklayout">
