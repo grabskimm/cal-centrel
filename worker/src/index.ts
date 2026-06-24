@@ -21,8 +21,9 @@
  */
 import { Container, getContainer } from '@cloudflare/containers';
 
+import { availabilityHtml } from './availability-page';
 import { type BookingPageCfg, bookingHtml } from './booking';
-import { DEMO_HTML } from './demo';
+import { calendarHtml } from './calendar-view';
 import { type Busy, computeSlots, parseDays } from './slots';
 
 export interface Env {
@@ -54,8 +55,9 @@ export interface Env {
 
   // --- public scheduling defaults (optional; overridable per request) ---
   SCHEDULE_SLOT_MINUTES?: string; // default slot length (min)
-  SCHEDULE_WORK_START?: string; // default working hours start HH:MM
-  SCHEDULE_WORK_END?: string; // default working hours end HH:MM
+  SCHEDULE_WORK_START?: string; // owner's working-hours start HH:MM (business tz)
+  SCHEDULE_WORK_END?: string; // owner's working-hours end HH:MM (business tz)
+  SCHEDULE_WORK_TZ?: string; // business timezone the working hours are in
   SCHEDULE_DAYS?: string; // default allowed weekdays, e.g. "1-5"
   SCHEDULE_MAX_RANGE_DAYS?: string; // clamp the requested date range
 
@@ -63,9 +65,13 @@ export interface Env {
   BOOKING_OWNER_EMAIL?: string; // invitee on the composed Outlook event
   BOOKING_TITLE?: string; // default event subject
   BOOKING_OUTLOOK_FLAVOR?: string; // 'office' (M365, default) | 'live' (personal)
+
+  PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
+  CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
 }
 
 const MERGED_KEY = 'merged/availability.ics';
+const MERGED_BUSY_KEY = 'merged/busy.json';
 const PUBLIC_KEY = 'public/availability.ics';
 const PUBLIC_FREEBUSY_KEY = 'public/freebusy.json';
 const RAW_ICS_RE = /^\/raw\/[A-Za-z0-9_]+\.ics$/;
@@ -171,7 +177,11 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (isRead) {
       if (path === '/') {
-        return new Response(DEMO_HTML, {
+        const html = availabilityHtml({
+          title: env.PUBLIC_PAGE_TITLE ?? 'Find a time that works',
+          fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
+        });
+        return new Response(html, {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
         });
       }
@@ -187,6 +197,7 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
           flavor: env.BOOKING_OUTLOOK_FLAVOR ?? 'office',
           tz: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
           durationMin: env.SCHEDULE_SLOT_MINUTES ?? '30',
+          fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
           slotsBase: '', // same origin
         };
         return new Response(bookingHtml(cfg), {
@@ -209,6 +220,26 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
     const token = url.searchParams.get('token') ?? '';
     if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
     return serveObject(env, path.slice(1));
+  }
+
+  // --- owner's labeled busy JSON (backs the calendar view) ---
+  if (isRead && path === '/busy.json') {
+    const token = url.searchParams.get('token') ?? '';
+    if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
+    return serveObject(env, MERGED_BUSY_KEY, 'application/json; charset=utf-8');
+  }
+
+  // --- owner's calendar view (token in the URL; the page re-uses it for /busy.json) ---
+  if (isRead && path === '/calendar') {
+    const token = url.searchParams.get('token') ?? '';
+    if (!safeEqual(token, env.FEED_TOKEN)) return new Response('forbidden', { status: 403 });
+    const html = calendarHtml({
+      title: env.PUBLIC_PAGE_TITLE ? `${env.PUBLIC_PAGE_TITLE} · Calendar` : 'My calendar',
+      fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
+    });
+    return new Response(html, {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
   }
 
   // --- device-agent upload ---
@@ -278,7 +309,12 @@ function isoDate(ms: number): string {
 async function handleSlots(url: URL, env: Env): Promise<Response> {
   const q = url.searchParams;
   const nowMs = Date.now();
-  const tz = q.get('tz') || env.AVAILCAL_DEFAULT_TZ || 'America/New_York';
+  // Working hours are the OWNER's business hours, interpreted in a fixed
+  // business timezone (env), NOT the viewer's. The viewer's tz only changes how
+  // the resulting UTC slots are displayed (done client-side), so it isn't needed
+  // for computation. `displayTz` is echoed back as a hint.
+  const workTz = env.SCHEDULE_WORK_TZ || env.AVAILCAL_DEFAULT_TZ || 'America/New_York';
+  const displayTz = q.get('tz') || workTz;
 
   const fromDate = q.get('from') || isoDate(nowMs);
   const maxRange = Number(env.SCHEDULE_MAX_RANGE_DAYS ?? '62') || 62;
@@ -297,8 +333,9 @@ async function handleSlots(url: URL, env: Env): Promise<Response> {
   };
   const durationMin = num(q.get('duration'), Number(env.SCHEDULE_SLOT_MINUTES ?? '30') || 30);
   const stepMin = num(q.get('step'), durationMin);
-  const workStart = q.get('workStart') || env.SCHEDULE_WORK_START || '09:00';
-  const workEnd = q.get('workEnd') || env.SCHEDULE_WORK_END || '17:00';
+  // Working hours come from env only (the owner controls them); default 08:00–18:00.
+  const workStart = env.SCHEDULE_WORK_START || '08:00';
+  const workEnd = env.SCHEDULE_WORK_END || '18:00';
 
   const obj = await env.AVAILCAL_BUCKET.get(PUBLIC_FREEBUSY_KEY);
   const busy: Busy[] = obj ? await obj.json() : [];
@@ -308,7 +345,7 @@ async function handleSlots(url: URL, env: Env): Promise<Response> {
     const slots = computeSlots(busy, {
       fromDate,
       toDate,
-      tz,
+      tz: workTz, // working hours interpreted in the business timezone
       durationMin,
       stepMin,
       workStart,
@@ -318,7 +355,7 @@ async function handleSlots(url: URL, env: Env): Promise<Response> {
       maxSlots: 2000,
     });
     return jsonResponse(
-      { tz, from: fromDate, to: toDate, durationMin, slots },
+      { tz: displayTz, workTz, from: fromDate, to: toDate, durationMin, slots },
       200,
       { 'Cache-Control': 'public, max-age=60' },
     );

@@ -115,6 +115,26 @@ def emit_public_freebusy_json(intervals: list[BusyInterval]) -> bytes:
     return json.dumps(data, separators=(",", ":")).encode("utf-8")
 
 
+def emit_merged_busy_json(intervals: list[BusyInterval]) -> bytes:
+    """Emit the merged, source-LABELED busy blocks as JSON (private).
+
+    Unlike the public free/busy, this keeps the source label and status on each
+    block — it backs the owner's token-gated calendar view, which shows *which*
+    calendar each busy block came from. Per-source overlaps stay separate (this
+    is ``merge_intervals`` output), so two calendars busy at once are two blocks.
+    """
+    data = [
+        {
+            "start": iv.start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": iv.end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": iv.source,
+            "status": iv.status,
+        }
+        for iv in sorted(intervals, key=lambda i: (i.start, i.source))
+    ]
+    return json.dumps(data, separators=(",", ":")).encode("utf-8")
+
+
 def emit_per_source(intervals: list[BusyInterval]) -> dict[str, bytes]:
     """Build one feed per source label, preserving original event UIDs.
 

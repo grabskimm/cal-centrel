@@ -24,6 +24,8 @@ from typing import Protocol, runtime_checkable
 log = logging.getLogger("availcal.storage")
 
 MERGED_OBJECT = "merged/availability.ics"
+# Merged, source-LABELED busy blocks as JSON (private; backs the calendar view).
+MERGED_BUSY_OBJECT = "merged/busy.json"
 # Fully-anonymized public feed (no source labels); served without a token.
 PUBLIC_OBJECT = "public/availability.ics"
 # Same anonymized data as JSON, for webpage fetch()/scheduling.

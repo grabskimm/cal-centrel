@@ -126,3 +126,21 @@ def test_public_freebusy_json_is_anonymized_array():
     raw = emit_public_freebusy_json(ivs).decode()
     for leak in ("Work", "iCloud", "Perso", "source"):
         assert leak not in raw
+
+
+def test_merged_busy_json_keeps_labels_and_status():
+    import json as _json
+
+    from availcal.emit import emit_merged_busy_json
+
+    ivs = [
+        BusyInterval(_utc(9), _utc(10), "MendelG", status="busy"),
+        BusyInterval(_utc(9), _utc(10), "LoganG", status="tentative"),
+    ]
+    data = _json.loads(emit_merged_busy_json(ivs))
+    # Same time, two sources -> two labeled blocks (not unioned).
+    assert {(o["source"], o["status"]) for o in data} == {
+        ("MendelG", "busy"),
+        ("LoganG", "tentative"),
+    }
+    assert all(set(o) == {"start", "end", "source", "status"} for o in data)

@@ -27,6 +27,7 @@ from pathlib import Path
 import icalendar
 
 from .emit import (
+    emit_merged_busy_json,
     emit_merged_ics,
     emit_per_source,
     emit_public_freebusy_json,
@@ -44,6 +45,7 @@ from .pull import (
 )
 from .sources import SourceRegistry, load_sources
 from .storage import (
+    MERGED_BUSY_OBJECT,
     MERGED_OBJECT,
     PUBLIC_FREEBUSY_OBJECT,
     PUBLIC_OBJECT,
@@ -255,6 +257,7 @@ def write_outputs(
     per_source: dict[str, bytes],
     public_ics: bytes | None = None,
     public_json: bytes | None = None,
+    merged_busy_json: bytes | None = None,
 ) -> list[str]:
     """Write merged + optional per-source + optional public feeds to the backend.
 
@@ -267,6 +270,10 @@ def write_outputs(
         )
 
     written = [backend.upload(MERGED_OBJECT, merged_ics)]
+    if merged_busy_json is not None:
+        written.append(
+            backend.upload(MERGED_BUSY_OBJECT, merged_busy_json, "application/json")
+        )
     if public_ics is not None:
         written.append(backend.upload(PUBLIC_OBJECT, public_ics))
     if public_json is not None:
@@ -299,8 +306,13 @@ def run(cfg: Config) -> list[str]:
     # boundary or count survives. ICS for subscription, JSON for web scheduling.
     public_ics = emit_public_ics(intervals) if cfg.emit_public else None
     public_json = emit_public_freebusy_json(intervals) if cfg.emit_public else None
+    # Labeled busy JSON is always emitted; it's private (token-gated) and backs
+    # the owner's calendar view.
+    merged_busy_json = emit_merged_busy_json(merged)
 
-    written = write_outputs(cfg, merged_ics, per_source, public_ics, public_json)
+    written = write_outputs(
+        cfg, merged_ics, per_source, public_ics, public_json, merged_busy_json
+    )
     log.info("wrote %d output(s): %s", len(written), ", ".join(written))
     return written
 

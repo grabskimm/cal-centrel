@@ -56,13 +56,20 @@
     "AVAILCAL_EMIT_PUBLIC": "true",
     "PUBLIC_FEED_HOST": "availability.example.com",
 
-    // Defaults for the /slots.json scheduling endpoint (all overridable per
-    // request via query params).
+    // Scheduling. Working hours are the OWNER's, interpreted in SCHEDULE_WORK_TZ
+    // (the viewer's chosen zone only affects how times are displayed). Default
+    // 08:00-18:00 Eastern, weekdays, 30-min slots.
     "SCHEDULE_SLOT_MINUTES": "30",
-    "SCHEDULE_WORK_START": "09:00",
-    "SCHEDULE_WORK_END": "17:00",
+    "SCHEDULE_WORK_START": "08:00",
+    "SCHEDULE_WORK_END": "18:00",
+    "SCHEDULE_WORK_TZ": "America/New_York",
     "SCHEDULE_DAYS": "1-5",
     "SCHEDULE_MAX_RANGE_DAYS": "62",
+
+    // Public page heading + the timezone fallback when a viewer's local zone
+    // can't be resolved.
+    "PUBLIC_PAGE_TITLE": "Find a time that works",
+    "CALENDAR_FALLBACK_TZ": "America/Los_Angeles",
 
     // Booking page at /book on the public host (universal .ics + Google + Outlook
     // links). BOOKING_OWNER_EMAIL = the mailbox added as guest/invitee.
