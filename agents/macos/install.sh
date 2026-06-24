@@ -24,6 +24,9 @@ LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 PLIST_DST="$LAUNCH_AGENTS/com.availcal.export.plist"
 SAS_URL="${AVAILCAL_AGENT_SAS_URL:-}"
 TOKEN="${AVAILCAL_AGENT_TOKEN:-}"
+# Cloudflare Access service token (only needed if the Worker host is behind Access).
+CF_ACCESS_ID="${AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID:-}"
+CF_ACCESS_SECRET="${AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET:-}"
 # Base interpreter used only to BUILD the venv. The system python3 is the right
 # default on macOS; override with AVAILCAL_BASE_PYTHON if you must.
 BASE_PYTHON="${AVAILCAL_BASE_PYTHON:-/usr/bin/python3}"
@@ -100,6 +103,13 @@ if [[ "$SAS_URL" == *"/raw/"* && "$SAS_URL" != *"blob.core.windows.net"* && -z "
   echo "AGENT_TOKEN." >&2
 fi
 
+# If the Worker host is behind Cloudflare Access, uploads 403 at the edge unless
+# a service token is supplied. Warn when only one half of the pair is set.
+if [[ -n "$CF_ACCESS_ID" && -z "$CF_ACCESS_SECRET" ]] || [[ -z "$CF_ACCESS_ID" && -n "$CF_ACCESS_SECRET" ]]; then
+  echo "warning: set BOTH AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID and" >&2
+  echo "AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET (or neither). Access needs both." >&2
+fi
+
 mkdir -p "$LAUNCH_AGENTS"
 
 # Render the plist template with concrete paths + upload URL + token (escaped).
@@ -108,7 +118,10 @@ sed -e "s/__INSTALL_DIR__/$(esc "$INSTALL_DIR")/g" \
     -e "s/__APP_EXEC__/$(esc "$APP_EXEC")/g" \
     -e "s/__SAS_URL__/$(esc "$SAS_URL")/g" \
     -e "s/__TOKEN__/$(esc "$TOKEN")/g" \
+    -e "s/__CF_ACCESS_ID__/$(esc "$CF_ACCESS_ID")/g" \
+    -e "s/__CF_ACCESS_SECRET__/$(esc "$CF_ACCESS_SECRET")/g" \
     "$PLIST_SRC" > "$PLIST_DST"
+chmod 600 "$PLIST_DST"   # the plist now holds secrets (token + Access secret)
 
 # Reload into the user's GUI session (never sudo — TCC + LaunchAgents are per-user).
 launchctl bootout "gui/$(id -u)/com.availcal.export" 2>/dev/null || true

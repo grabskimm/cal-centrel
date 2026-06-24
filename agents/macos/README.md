@@ -267,6 +267,8 @@ at your Worker URL.
 | `--horizon-days N` | `90` | How many days ahead to read. |
 | `--sas-url URL` | `$AVAILCAL_AGENT_SAS_URL` | Upload target (Worker URL or Azure SAS). |
 | `--token TOKEN` | `$AVAILCAL_AGENT_TOKEN` | Bearer token for the Worker (blank for Azure). |
+| `--cf-access-client-id ID` | `$AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID` | Cloudflare Access service-token ID (only if the Worker host is behind Access). |
+| `--cf-access-client-secret SECRET` | `$AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET` | Cloudflare Access service-token secret. |
 
 ## Reference: `sources.toml` format
 
@@ -302,6 +304,33 @@ export AVAILCAL_AGENT_SAS_URL="https://availcal.example.com/raw/Work.json"
 export AVAILCAL_AGENT_TOKEN="…the worker AGENT_TOKEN…"
 ./venv/bin/python export_calendar.py --sources-toml ./sources.toml
 ```
+
+#### If the private host is behind Cloudflare Access (Zero Trust)
+
+The `availcal.<domain>` host is typically fronted by **Cloudflare Access**, which
+requires an SSO login. A machine can't do that, so an upload with only the Bearer
+token is rejected at the edge with **HTTP 403** (note: the Worker itself returns
+**401** for a bad token — a 403 means Access blocked it before the Worker). Give
+the agent a **service token**:
+
+1. In **Cloudflare Zero Trust → Access → Service Auth → Service Tokens**, create a
+   token. Copy the **Client ID** and **Client Secret**.
+2. On the Access **application** that covers `availcal.<domain>` (at least the
+   `/raw/*` path), add a policy: **Action = Service Auth**, include your service
+   token. (Alternatively, add a **Bypass** policy scoped to `/raw/*` — the Worker
+   already enforces `AGENT_TOKEN` on PUT — but that also un-gates `GET /raw/*`.)
+3. Configure the agent with both halves:
+
+```bash
+export AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID="…service-token client id…"
+export AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET="…service-token client secret…"
+./venv/bin/python export_calendar.py --sources-toml ./sources.toml
+```
+
+The agent sends these as `CF-Access-Client-Id` / `CF-Access-Client-Secret`;
+Access validates them and forwards the request to the Worker, which still checks
+the Bearer `AGENT_TOKEN`. Pass them to `install.sh` the same way (export both
+before running it) so they're baked into the launchd plist.
 
 ### Azure Blob (legacy)
 

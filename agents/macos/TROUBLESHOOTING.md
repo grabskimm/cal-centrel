@@ -211,12 +211,43 @@ the window with `--horizon-days N` if needed (default 90).
 
 ---
 
-## 6. Uploads return `401`
+## 6. Uploads return `401` or `403`
 
-For the Cloudflare Worker, `AVAILCAL_AGENT_TOKEN` is missing or wrong. **launchd
-does not inherit your shell env**, so the token must be baked into the plist —
-re-run `install.sh` (no sudo) with the correct `AVAILCAL_AGENT_SAS_URL` and
-`AVAILCAL_AGENT_TOKEN`.
+The status code tells you **which** layer rejected the upload:
+
+**`401 unauthorized`** — the **Worker** rejected the Bearer token.
+`AVAILCAL_AGENT_TOKEN` is missing or wrong. **launchd does not inherit your shell
+env**, so the token must be baked into the plist — re-run `install.sh` (no sudo)
+with the correct `AVAILCAL_AGENT_SAS_URL` and `AVAILCAL_AGENT_TOKEN`.
+
+**`403 Forbidden`** — **Cloudflare Access** blocked it at the edge, before the
+Worker (the Worker never returns 403 on the upload path — only 401/201). The
+`availcal.<domain>` host is behind Access SSO, which a machine can't complete.
+Fix with a **service token**:
+
+1. Cloudflare **Zero Trust → Access → Service Auth → Service Tokens** → create
+   one; copy the Client ID + Client Secret.
+2. On the Access application covering `availcal.<domain>` (at least `/raw/*`),
+   add a **Service Auth** policy including that token. (Or a **Bypass** policy on
+   `/raw/*` — the Worker still enforces `AGENT_TOKEN` on PUT — but that also
+   un-gates `GET /raw/*`.)
+3. Re-run `install.sh` (no sudo) with both halves exported so they're baked into
+   the plist:
+   ```bash
+   export AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID="…"
+   export AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET="…"
+   AVAILCAL_AGENT_SAS_URL="…/raw/<Label>.json" AVAILCAL_AGENT_TOKEN="…" ./install.sh ~/availcal
+   ```
+
+Confirm which layer you're hitting with a direct request (shows the response
+headers/body — Access serves an HTML challenge, the Worker a short text body):
+```bash
+curl -i -X PUT "https://availcal.<domain>/raw/<Label>.json" \
+  -H "Authorization: Bearer $AVAILCAL_AGENT_TOKEN" \
+  -H "CF-Access-Client-Id: $AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET" \
+  --data '[]'
+```
 
 ---
 

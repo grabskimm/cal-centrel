@@ -162,7 +162,9 @@ def collect_busy(store, labels: dict[str, str], horizon_days: int) -> list[dict]
     return out
 
 
-def upload(sas_url: str, payload: bytes, token: str | None = None) -> None:
+def upload(sas_url: str, payload: bytes, token: str | None = None,
+           cf_access_client_id: str | None = None,
+           cf_access_client_secret: str | None = None) -> None:
     headers = {"Content-Type": "application/json"}
     # Azure Blob needs x-ms-blob-type; an R2/S3 presigned PUT must NOT receive an
     # unsigned header that could break its signature, so add it only for Azure.
@@ -172,6 +174,13 @@ def upload(sas_url: str, payload: bytes, token: str | None = None) -> None:
     # authenticate with a Bearer token instead of a signed URL.
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    # If the Worker's host is fronted by Cloudflare Access (Zero Trust), a machine
+    # can't do the SSO login, so it authenticates with an Access *service token*.
+    # Access validates these at the edge and forwards the request to the Worker
+    # (which still checks the Bearer AGENT_TOKEN). Without them Access returns 403.
+    if cf_access_client_id and cf_access_client_secret:
+        headers["CF-Access-Client-Id"] = cf_access_client_id
+        headers["CF-Access-Client-Secret"] = cf_access_client_secret
     req = urllib.request.Request(sas_url, data=payload, method="PUT", headers=headers)
     with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - https URL
         if resp.status not in (200, 201):
@@ -188,6 +197,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--token", default=os.environ.get("AVAILCAL_AGENT_TOKEN", ""),
                     help="Bearer token for the Cloudflare Worker upload endpoint "
                          "(or AVAILCAL_AGENT_TOKEN)")
+    ap.add_argument("--cf-access-client-id",
+                    default=os.environ.get("AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID", ""),
+                    help="Cloudflare Access service-token Client ID, if the Worker "
+                         "host is behind Access (or AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID)")
+    ap.add_argument("--cf-access-client-secret",
+                    default=os.environ.get("AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET", ""),
+                    help="Cloudflare Access service-token Client Secret "
+                         "(or AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET)")
     ap.add_argument("--sources-toml", default="./sources.toml")
     ap.add_argument("--horizon-days", type=int, default=90)
     args = ap.parse_args(argv)
@@ -220,7 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n# DRY RUN: parsed {len(busy)} busy interval(s). Nothing uploaded.")
         return 0
 
-    upload(args.sas_url, payload, token=args.token or None)
+    upload(args.sas_url, payload, token=args.token or None,
+           cf_access_client_id=args.cf_access_client_id or None,
+           cf_access_client_secret=args.cf_access_client_secret or None)
     print(f"Uploaded {len(busy)} busy interval(s).")
     return 0
 

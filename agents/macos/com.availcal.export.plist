@@ -36,6 +36,12 @@
         <string>__SAS_URL__</string>
         <key>AVAILCAL_AGENT_TOKEN</key>
         <string>__TOKEN__</string>
+        <!-- Cloudflare Access service token, only if the Worker host is fronted
+             by Access (Zero Trust). Left blank otherwise. -->
+        <key>AVAILCAL_AGENT_CF_ACCESS_CLIENT_ID</key>
+        <string>__CF_ACCESS_ID__</string>
+        <key>AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET</key>
+        <string>__CF_ACCESS_SECRET__</string>
     </dict>
 
     <key>StandardOutPath</key>
