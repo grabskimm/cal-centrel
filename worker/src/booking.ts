@@ -17,6 +17,7 @@ export interface BookingPageCfg {
   tz: string;
   durationMin: string;
   heading: string; // hero heading, e.g. "Book a time with Mendel"
+  footer?: string; // optional footer HTML (copyright/link)
   fallbackTz?: string;
   slotsBase?: string; // origin for /slots.json ('' = same origin)
 }
@@ -34,6 +35,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
 </head>
 <body>
   <header class="hero">
+    <a class="home" href="/">⌂ Home</a>
     <h1>${escapeHtml(cfg.heading)}</h1>
     <p>Choose a day, then a time. Shown in your time zone.</p>
   </header>
@@ -53,6 +55,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
       </div>
     </div>
     <div id="status"></div>
+    ${cfg.footer ?? ''}
   </div>
 
   <div id="modal" class="modal" hidden>

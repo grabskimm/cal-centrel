@@ -8,6 +8,7 @@
 export interface AvailabilityPageCfg {
   title: string; // friendly heading
   fallbackTz: string; // used if the browser can't resolve a local zone
+  footer?: string; // optional footer HTML (copyright/link)
 }
 
 // Shared, modern look-and-feel for the public pages.
@@ -29,6 +30,10 @@ export const SHARED_CSS = `
   header.hero { text-align:center; padding: 3rem 1rem 4.4rem; color:#fff;
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand2) 55%, var(--accent) 140%);
     position:relative; overflow:hidden; }
+  .hero .home { position:absolute; top:1rem; left:1.1rem; color:#fff; text-decoration:none;
+    font-weight:700; font-size:.88rem; opacity:.9; display:inline-flex; gap:.35rem; align-items:center;
+    background:rgba(255,255,255,.16); padding:.35rem .7rem; border-radius:99px; backdrop-filter:blur(4px); }
+  .hero .home:hover { opacity:1; background:rgba(255,255,255,.26); }
   header.hero::after { content:""; position:absolute; inset:auto 0 -1px 0; height:48px;
     background:linear-gradient(to bottom, transparent, var(--bg)); }
   header.hero h1 { margin:0 0 .4rem; font-size: clamp(1.5rem, 3.4vw, 2.1rem); letter-spacing:-.02em; font-weight:800; }
@@ -82,9 +87,28 @@ export const SHARED_CSS = `
   .cal-cell.has:active { transform:translateY(1px); }
   .cal-cell.sel { background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; box-shadow:0 6px 16px rgba(99,102,241,.4); }
   .cal-cell.today:not(.sel) { box-shadow:inset 0 0 0 2px var(--accent); }
-  .times { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.3rem; }
+  /* times: a clean VERTICAL list (Calendly-style), not horizontal chips */
+  .times { display:flex; flex-direction:column; gap:.5rem; margin-top:.3rem; }
+  .times .chip { width:100%; text-align:center; padding:.7rem .8rem; border-radius:12px; font-weight:700; }
   .picked { font-weight:800; margin:.1rem .1rem .7rem; font-size:.98rem; }
-  .timescol { min-height:6rem; }
+  .timescol { min-height:6rem; max-height:62vh; overflow-y:auto; padding-right:.15rem; }
+  footer a { color:var(--brand); text-decoration:none; font-weight:600; }
+  footer a:hover { text-decoration:underline; }
+  /* ---- mobile ---- */
+  @media (max-width:620px){
+    header.hero { padding:2.4rem 1rem 3.6rem; }
+    .hero .home { top:.7rem; left:.7rem; }
+    .wrap { padding:0 .8rem 3rem; }
+    .panel { margin-top:-2rem; padding:1rem; border-radius:14px; }
+    .controls { gap:.7rem; }
+    .field { width:100%; } .field select, .field input { min-width:0; width:100%; }
+    .grow { flex-basis:100%; }
+    a.book { margin-left:0; width:100%; justify-content:center; }
+    .timescol { max-height:none; overflow:visible; }
+    .row { grid-template-columns:1fr; }
+    .sheet { border-radius:16px 16px 0 0; align-self:flex-end; }
+    .modal { align-items:flex-end; padding:0; }
+  }
   /* modal */
   .modal { position:fixed; inset:0; background:rgba(11,16,32,.45); display:flex; align-items:center;
     justify-content:center; padding:1rem; z-index:50; animation:fade .15s ease; }
@@ -216,6 +240,7 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
     </div>
     <div id="status"></div>
     <footer>Availability updates hourly.</footer>
+    ${cfg.footer ?? ''}
   </div>
 
 <script>
