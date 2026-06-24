@@ -39,8 +39,9 @@ export interface CalendarPageCfg {
   title: string;
   fallbackTz: string;
   footer?: string;
-  // The booking + contact pages live on the PUBLIC host, not this private one,
-  // so these must be absolute URLs (e.g. https://availability.example/book).
+  // The home + booking + contact pages live on the PUBLIC host, not this private
+  // one, so these must be absolute URLs (e.g. https://availability.example/book).
+  homeHref?: string;
   bookHref?: string;
   contactHref?: string;
 }
@@ -60,6 +61,31 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .nav button { font:inherit; padding:.5rem .8rem; border:1px solid var(--line); background:#fff;
     border-radius:9px; cursor:pointer; }
   .nav button:hover { background:#f8fafc; }
+  .viewseg { display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .viewseg button { font:inherit; padding:.5rem .9rem; border:0; border-left:1px solid var(--line);
+    background:#fff; cursor:pointer; }
+  .viewseg button:first-child { border-left:0; }
+  .viewseg button.active { background:var(--brand); color:#fff; }
+  #period { font-weight:700; margin:.7rem .2rem 0; }
+  /* "now" line across today's column, positioned in the viewer's timezone */
+  .nowline { position:absolute; left:0; right:0; height:0; border-top:2px solid #ef4444; z-index:6; pointer-events:none; }
+  .nowline::before { content:''; position:absolute; left:-3px; top:-4px; width:7px; height:7px; border-radius:50%; background:#ef4444; }
+  /* month grid */
+  .month { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); border:1px solid var(--line);
+    border-radius:12px; overflow:hidden; background:#fff; margin-top:.8rem; }
+  .month .dow { background:#f8fafc; border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
+    font-size:.72rem; font-weight:600; color:var(--muted); }
+  .month .cell { min-height:6.4rem; border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+    padding:.3rem; cursor:pointer; overflow:hidden; }
+  .month .cell:hover { background:#f8fafc; }
+  .month .cell.off { background:#fafafa; }
+  .month .cell.off .dn { color:var(--muted); }
+  .month .cell.today .dn { background:var(--brand); color:#fff; }
+  .month .dn { display:inline-flex; align-items:center; justify-content:center; min-width:1.4rem; height:1.4rem;
+    border-radius:50%; font-size:.74rem; font-weight:600; }
+  .month .mev { margin-top:2px; font-size:.64rem; color:#fff; border-radius:4px; padding:1px 4px;
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .month .more { font-size:.62rem; color:var(--muted); margin-top:1px; }
   .legend { display:flex; flex-wrap:wrap; gap:.6rem; margin:.8rem .2rem 0; font-size:.8rem; color:var(--muted); }
   .legend .k { display:inline-flex; align-items:center; gap:.35rem; }
   .legend .sw { width:.8rem; height:.8rem; border-radius:3px; display:inline-block; }
@@ -83,7 +109,8 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
 <body>
   <header class="hero">
     <nav class="topnav">
-      ${cfg.bookHref ? `<a href="${cfg.bookHref}">⌂ Booking page</a>` : ''}
+      ${cfg.homeHref ? `<a href="${cfg.homeHref}">⌂ Home</a>` : ''}
+      ${cfg.bookHref ? `<a href="${cfg.bookHref}">📅 Booking page</a>` : ''}
       <span class="spacer"></span>
       ${cfg.contactHref ? `<a href="${cfg.contactHref}">✉ Contact</a>` : ''}
     </nav>
@@ -97,6 +124,14 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
           <label for="tz">Time zone</label>
           <select id="tz"></select>
         </div>
+        <div class="field">
+          <label>View</label>
+          <div class="viewseg">
+            <button id="v-day" data-v="day">Day</button>
+            <button id="v-week" data-v="week" class="active">Week</button>
+            <button id="v-month" data-v="month">Month</button>
+          </div>
+        </div>
         <div class="field nav">
           <label>&nbsp;</label>
           <div style="display:flex; gap:.4rem;">
@@ -106,11 +141,13 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
           </div>
         </div>
       </div>
+      <div id="period"></div>
       <div class="legend" id="legend"></div>
     </div>
     <div id="status" style="margin:.8rem .2rem;color:var(--muted);font-size:.85rem;">Loading…</div>
-    <div class="scroll"><div class="grid" id="grid"></div></div>
-    <p class="hint">Tip: swipe horizontally to see the full week on small screens.</p>
+    <div class="scroll" id="timewrap"><div class="grid" id="grid"></div></div>
+    <div class="month" id="month" hidden></div>
+    <p class="hint" id="hint">Tip: swipe horizontally to see the full week on small screens.</p>
     ${cfg.footer ?? ''}
   </div>
 
@@ -123,44 +160,70 @@ ${tzParts.toString()}
 ${labelColor.toString()}
 
 const HOUR_PX = 44, DAY_PX = HOUR_PX * 24;
+const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const token = new URLSearchParams(location.search).get('token') || '';
 const tzSel = document.getElementById('tz');
 const gridEl = document.getElementById('grid');
+const monthEl = document.getElementById('month');
+const timeWrap = document.getElementById('timewrap');
 const statusEl = document.getElementById('status');
 const legendEl = document.getElementById('legend');
+const periodEl = document.getElementById('period');
+const hintEl = document.getElementById('hint');
 let events = [];
-let weekStart = null; // YYYY-MM-DD
+let view = 'week';      // 'day' | 'week' | 'month'
+let anchor = null;      // YYYY-MM-DD reference day
 
 buildTzPicker(tzSel, CFG.fallbackTz);
 
+function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt) e.textContent = txt; return e; }
 function addDays(dayKey, n) {
   const [y,m,d] = dayKey.split('-').map(Number);
   return new Date(Date.UTC(y, m-1, d) + n*864e5).toISOString().slice(0,10);
 }
+function addMonths(dayKey, n) {
+  let [y,m] = dayKey.split('-').map(Number);
+  const idx = y*12 + (m-1) + n; y = Math.floor(idx/12); m = idx%12 + 1;
+  return y + '-' + String(m).padStart(2,'0') + '-01';
+}
+function startOfWeek(dayKey) { // align to Sunday
+  const [y,m,d] = dayKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m-1, d));
+  return new Date(dt.getTime() - dt.getUTCDay()*864e5).toISOString().slice(0,10);
+}
 function todayKey(tz) { return tzParts(new Date().toISOString(), tz).dayKey; }
+function nowMinutes(tz) { return tzParts(new Date().toISOString(), tz).minutes; }
 const fmtTime = (s, tz) => new Date(s).toLocaleTimeString([], { hour:'numeric', minute:'2-digit', timeZone: tz });
 const colLabel = (dayKey) => new Date(dayKey + 'T12:00:00').toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
 
-function render() {
-  const tz = tzSel.value;
-  if (!weekStart) weekStart = todayKey(tz);
+function columns() {
+  if (view === 'day') return [anchor];
+  const s = startOfWeek(anchor);
+  return Array.from({length:7}, (_, i) => addDays(s, i));
+}
+
+function renderLegend(labels) {
+  legendEl.innerHTML = '';
+  for (const l of [...labels].sort()) {
+    const k = el('span','k',''); const sw = el('span','sw',''); sw.style.background = labelColor(l);
+    k.appendChild(sw); k.appendChild(document.createTextNode(l)); legendEl.appendChild(k);
+  }
+}
+
+function renderTimeGrid(tz) {
+  const cols = columns();
   const today = todayKey(tz);
-  const cols = Array.from({length:7}, (_, i) => addDays(weekStart, i));
+  gridEl.style.gridTemplateColumns = '3.2rem repeat(' + cols.length + ', minmax(5.2rem, 1fr))';
+  gridEl.style.minWidth = view === 'week' ? '680px' : '0';
   gridEl.innerHTML = '';
 
-  // header row
   gridEl.appendChild(el('div','head',''));
   for (const c of cols) gridEl.appendChild(el('div','head' + (c===today?' today':''), colLabel(c)));
 
-  // time gutter
   const gutter = el('div','', '');
-  for (let h=0; h<24; h++) {
-    const g = el('div','gutcell', h===0?'' : (h%12||12) + (h<12?' AM':' PM'));
-    gutter.appendChild(g);
-  }
+  for (let h=0; h<24; h++) gutter.appendChild(el('div','gutcell', h===0?'' : (h%12||12) + (h<12?' AM':' PM')));
   gridEl.appendChild(gutter);
 
-  // day columns
   const labels = new Set();
   for (const c of cols) {
     const body = el('div','colbody','');
@@ -182,21 +245,75 @@ function render() {
       box.querySelector('span').textContent = fmtTime(ev.start, tz) + '–' + fmtTime(ev.end, tz);
       body.appendChild(box);
     }
+    if (c === today) { // current-time line in the viewer's tz
+      const nl = el('div','nowline',''); nl.style.top = ((nowMinutes(tz)/1440)*DAY_PX) + 'px';
+      body.appendChild(nl);
+    }
     gridEl.appendChild(body);
   }
-
-  // legend
-  legendEl.innerHTML = '';
-  for (const l of [...labels].sort()) {
-    const k = el('span','k',''); const sw = el('span','sw',''); sw.style.background = labelColor(l);
-    k.appendChild(sw); k.appendChild(document.createTextNode(l)); legendEl.appendChild(k);
-  }
-  statusEl.textContent = events.length + ' busy block(s).';
-  // scroll to ~6am on first paint
-  const sc = document.querySelector('.scroll'); if (sc && !sc.dataset.scrolled) { sc.scrollTop = 6*HOUR_PX; sc.dataset.scrolled='1'; }
+  renderLegend(labels);
+  if (!timeWrap.dataset.scrolled) { timeWrap.scrollTop = 6*HOUR_PX; timeWrap.dataset.scrolled = '1'; }
 }
 
-function el(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt) e.textContent = txt; return e; }
+function renderMonth(tz) {
+  const today = todayKey(tz);
+  const month = anchor.slice(0,7);
+  const cells = Array.from({length:42}, (_, i) => addDays(startOfWeek(month + '-01'), i));
+  monthEl.innerHTML = '';
+  for (const d of DOW) monthEl.appendChild(el('div','dow', d));
+  const labels = new Set();
+  for (const c of cells) {
+    const cell = el('div','cell' + (c.slice(0,7)===month?'':' off') + (c===today?' today':''), '');
+    cell.appendChild(el('span','dn', String(Number(c.slice(8,10)))));
+    const dayEvs = events
+      .filter((ev) => tzParts(ev.start, tz).dayKey === c)
+      .sort((a,b) => tzParts(a.start, tz).minutes - tzParts(b.start, tz).minutes);
+    for (const ev of dayEvs.slice(0,3)) {
+      labels.add(ev.source);
+      const m = el('div','mev', fmtTime(ev.start, tz) + ' ' + ev.source);
+      m.style.background = labelColor(ev.source);
+      cell.appendChild(m);
+    }
+    if (dayEvs.length > 3) cell.appendChild(el('div','more', '+' + (dayEvs.length - 3) + ' more'));
+    cell.addEventListener('click', () => { anchor = c; setView('day'); render(); });
+    monthEl.appendChild(cell);
+  }
+  renderLegend(labels);
+}
+
+function periodLabel(tz) {
+  if (view === 'day') return new Date(anchor + 'T12:00:00').toLocaleDateString([], { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  if (view === 'month') return new Date(anchor + 'T12:00:00').toLocaleDateString([], { month:'long', year:'numeric' });
+  const cols = columns();
+  return colLabel(cols[0]) + ' – ' + colLabel(cols[6]);
+}
+
+function render() {
+  const tz = tzSel.value;
+  if (!anchor) anchor = todayKey(tz);
+  if (view === 'month') {
+    timeWrap.hidden = true; monthEl.hidden = false; hintEl.textContent = 'Tip: click a day to open its detailed view.';
+    renderMonth(tz);
+  } else {
+    monthEl.hidden = true; timeWrap.hidden = false;
+    hintEl.textContent = view === 'week' ? 'Tip: swipe horizontally to see the full week on small screens.' : '';
+    renderTimeGrid(tz);
+  }
+  periodEl.textContent = periodLabel(tz);
+  statusEl.textContent = events.length + ' busy block(s).';
+}
+
+function setView(v) {
+  view = v;
+  for (const b of document.querySelectorAll('.viewseg button')) b.classList.toggle('active', b.dataset.v === v);
+}
+
+// Keep the now-line current without a full re-render (every 60s).
+setInterval(() => {
+  if (view === 'month') return;
+  const nl = gridEl.querySelector('.nowline');
+  if (nl) nl.style.top = ((nowMinutes(tzSel.value)/1440)*DAY_PX) + 'px';
+}, 60000);
 
 async function load() {
   statusEl.textContent = 'Loading…';
@@ -215,9 +332,18 @@ async function load() {
 }
 
 tzSel.addEventListener('change', render);
-document.getElementById('prev').addEventListener('click', () => { weekStart = addDays(weekStart, -7); render(); });
-document.getElementById('next').addEventListener('click', () => { weekStart = addDays(weekStart, 7); render(); });
-document.getElementById('today').addEventListener('click', () => { weekStart = todayKey(tzSel.value); render(); });
+document.getElementById('prev').addEventListener('click', () => {
+  anchor = view === 'day' ? addDays(anchor, -1) : view === 'month' ? addMonths(anchor, -1) : addDays(anchor, -7);
+  render();
+});
+document.getElementById('next').addEventListener('click', () => {
+  anchor = view === 'day' ? addDays(anchor, 1) : view === 'month' ? addMonths(anchor, 1) : addDays(anchor, 7);
+  render();
+});
+document.getElementById('today').addEventListener('click', () => { anchor = todayKey(tzSel.value); render(); });
+for (const id of ['day','week','month']) {
+  document.getElementById('v-' + id).addEventListener('click', () => { setView(id); render(); });
+}
 load();
 </script>
 </body>

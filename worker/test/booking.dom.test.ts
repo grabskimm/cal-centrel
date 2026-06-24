@@ -77,19 +77,18 @@ describe('booking page (DOM runtime)', () => {
     expect(document.getElementById('mwhen')!.textContent).toMatch(/July 15 ·.*4:00/);
   });
 
-  it('populates the modal with working email + calendar launch links', async () => {
+  it('populates the modal with calendar launch links only (no email request)', async () => {
     await bootPage();
     (document.querySelector('#times .chip') as HTMLButtonElement).click();
 
-    const emailLinks = [...document.querySelectorAll('#email-row a')] as HTMLAnchorElement[];
     const calLinks = [...document.querySelectorAll('#cal-row a')] as HTMLAnchorElement[];
-
-    // Gmail / Outlook / default mail-app compose links.
-    expect(emailLinks.some((a) => a.href.includes('mail.google.com'))).toBe(true);
-    expect(emailLinks.some((a) => a.href.startsWith('mailto:'))).toBe(true);
     // Google + Outlook calendar links and a downloadable .ics.
     expect(calLinks.some((a) => a.href.includes('calendar.google.com'))).toBe(true);
+    expect(calLinks.some((a) => a.href.includes('outlook'))).toBe(true);
     expect(calLinks.some((a) => a.hasAttribute('download'))).toBe(true);
+    // The email-request row is gone entirely.
+    expect(document.getElementById('email-row')).toBeNull();
+    expect(document.querySelectorAll('a[href^="mailto:"]').length).toBe(0);
   });
 
   it('closes the modal with the × button', async () => {

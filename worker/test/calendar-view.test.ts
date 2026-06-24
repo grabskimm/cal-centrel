@@ -52,5 +52,29 @@ describe('calendarHtml', () => {
   it('omits the nav links when no public host is configured', () => {
     expect(html).not.toContain('href="/book"');
     expect(html).not.toContain('✉ Contact');
+    expect(html).not.toContain('⌂ Home');
+  });
+
+  it('adds a Home link to the public host when configured', () => {
+    const withHome = calendarHtml({
+      title: 'My calendar',
+      fallbackTz: 'America/Los_Angeles',
+      homeHref: 'https://availability.example.com',
+    });
+    expect(withHome).toContain('href="https://availability.example.com">⌂ Home');
+  });
+
+  it('offers day/week/month views and defaults to week', () => {
+    expect(html).toContain('data-v="day"');
+    expect(html).toContain('data-v="week"');
+    expect(html).toContain('data-v="month"');
+    // Week is the active (default) view button.
+    expect(html).toMatch(/data-v="week" class="active"/);
+    expect(html).toContain("let view = 'week'");
+  });
+
+  it('draws a current-time line in the viewer timezone', () => {
+    expect(html).toContain('nowline');
+    expect(html).toContain('nowMinutes');
   });
 });

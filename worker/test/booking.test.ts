@@ -25,26 +25,21 @@ describe('bookingHtml', () => {
   });
 
   it('embeds the calendar + email launch builders', () => {
-    for (const fn of [
-      'const googleCalendarUrl =',
-      'const outlookComposeUrl =',
-      'const icsContent =',
-      'const gmailComposeUrl =',
-      'const outlookMailUrl =',
-      'const mailtoUrl =',
-    ]) {
+    for (const fn of ['const googleCalendarUrl =', 'const outlookComposeUrl =', 'const icsContent =']) {
       expect(html).toContain(fn);
     }
   });
 
-  it('has a launch modal with email + calendar options', () => {
+  it('has a launch modal with calendar options only (no email request)', () => {
     expect(html).toContain('class="modal"');
-    expect(html).toContain('email-row');
     expect(html).toContain('cal-row');
-    expect(html).toContain("'Gmail'");
-    expect(html).toContain("'Default mail app'");
     expect(html).toContain("'Google Calendar'");
+    expect(html).toContain("'Outlook Calendar'");
     expect(html).toContain('Download .ics');
     expect(html).toContain('createObjectURL');
+    // Email-request path is gone.
+    expect(html).not.toContain('email-row');
+    expect(html).not.toContain("'Gmail'");
+    expect(html).not.toContain('const mailtoUrl =');
   });
 });

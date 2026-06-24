@@ -73,15 +73,18 @@ export const SHARED_CSS = `
   a.chip { text-decoration:none; }
   .empty { text-align:center; color:var(--muted); padding:2.6rem 1rem; }
   footer { text-align:center; color:var(--muted); font-size:.78rem; margin-top:2.2rem; }
-  /* Calendly-style picker: month-calendar on the LEFT; the times panel slides
-     in on the RIGHT once a date is picked. Stacks vertically on small screens. */
-  .booklayout { display:flex; gap:1.4rem; align-items:flex-start; flex-wrap:wrap; }
-  .calbox { flex:0 0 auto; width:21rem; max-width:100%; }
-  .timescol { flex:1 1 15rem; min-width:0; max-height:26rem; overflow-y:auto; padding-right:.2rem; }
+  /* Two distinct cards side by side: the month-calendar and, ALONGSIDE it, a
+     separate times card that fills in once a date is picked (Calendly-style). */
+  .booklayout { display:flex; gap:1rem; align-items:stretch; flex-wrap:wrap; margin-top:1.1rem; }
+  .card { border:1px solid var(--line); border-radius:13px; padding:1rem 1.05rem; background:#fcfdff; }
+  .calcard { flex:0 0 auto; width:21rem; max-width:100%; }
+  .timecard { flex:1 1 14rem; min-width:0; display:flex; flex-direction:column; }
+  .timecard .timescol { overflow-y:auto; max-height:22rem; padding-right:.15rem; }
   @media (max-width:760px){
     .booklayout { flex-direction:column; }
-    .calbox { width:100%; }
-    .timescol { width:100%; flex-basis:auto; max-height:none; }
+    .calcard { width:100%; }
+    .timecard { flex-basis:auto; }
+    .timecard .timescol { max-height:none; }
   }
   .calhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:.6rem; }
   .calhead .ml { font-weight:800; font-size:1rem; }
@@ -99,11 +102,13 @@ export const SHARED_CSS = `
   .cal-cell.has:active { transform:translateY(1px); }
   .cal-cell.sel { background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; box-shadow:0 6px 16px rgba(99,102,241,.4); }
   .cal-cell.today:not(.sel) { box-shadow:inset 0 0 0 2px var(--accent); }
-  /* times: a clean VERTICAL list that slides in from the right when shown */
-  .times { display:flex; flex-direction:column; gap:.5rem; margin-top:.3rem; animation:slidein .28s ease; }
-  .times .chip { width:100%; text-align:center; padding:.75rem .8rem; border-radius:12px; font-weight:700; }
-  .picked { font-weight:800; margin:.1rem .1rem .7rem; font-size:.98rem; animation:slidein .28s ease; }
-  .timescol .empty { color:var(--muted); text-align:center; padding:2rem 1rem; font-size:.9rem; }
+  /* times: a clean VERTICAL list inside the times card; slides in when shown */
+  .times { display:flex; flex-direction:column; gap:.5rem; animation:slidein .28s ease; }
+  .times .chip { width:100%; text-align:center; padding:.7rem .8rem; border-radius:12px; font-weight:700; }
+  .picked { font-weight:800; margin:0 0 .7rem; font-size:.95rem; padding-bottom:.6rem;
+    border-bottom:1px solid var(--line); animation:slidein .28s ease; }
+  .timecard .empty { color:var(--muted); text-align:center; padding:2.4rem 1rem; font-size:.9rem;
+    margin:auto; display:flex; align-items:center; justify-content:center; height:100%; }
   @keyframes slidein { from { opacity:0; transform:translateX(16px); } to { opacity:1; transform:none; } }
   footer a { color:var(--brand); text-decoration:none; font-weight:600; }
   footer a:hover { text-decoration:underline; }
@@ -250,15 +255,14 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
     <div class="panel">
       <div class="controls">
         <div class="field grow"><label for="tz">Time zone</label><select id="tz"></select></div>
-        <a class="btn btn-primary book" href="/book">Book a time →</a>
       </div>
       <div class="booklayout">
-        <div class="calbox">
+        <section class="card calcard">
           <div class="calhead"><button id="prev" aria-label="Previous month">‹</button>
             <span class="ml" id="ml"></span><button id="next" aria-label="Next month">›</button></div>
           <div class="cal" id="cal"></div>
-        </div>
-        <div class="timescol" id="times"></div>
+        </section>
+        <section class="card timecard"><div class="timescol" id="times"></div></section>
       </div>
     </div>
     <div id="status"></div>
@@ -278,7 +282,7 @@ buildTzPicker(tzSel, CFG.fallbackTz);
 const picker = createPicker({
   calEl:$('cal'), timesEl:$('times'), monthLabelEl:$('ml'), prevEl:$('prev'), nextEl:$('next'),
   getTz: ()=>tzSel.value, getSlots: ()=>cache,
-  onTime: (s)=>{ location.href = '/book?from=' + encodeURIComponent(s.start.slice(0,10)); },
+  onTime: (s)=>{ location.href = '/book?from=' + encodeURIComponent(s.start.slice(0,10)) + '&at=' + encodeURIComponent(s.start); },
 });
 
 async function load() {
