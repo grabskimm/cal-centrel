@@ -77,4 +77,13 @@ describe('calendarHtml', () => {
     expect(html).toContain('nowline');
     expect(html).toContain('nowMinutes');
   });
+
+  it('has a dismissible new-events notifications area backed by /notifications.json', () => {
+    expect(html).toContain('id="notify"');
+    expect(html).toContain('/notifications.json?token=');
+    expect(html).toContain('Dismiss all');
+    // Dismissals persist client-side.
+    expect(html).toContain('localStorage');
+    expect(html).toContain('availcal_dismissed_notifications');
+  });
 });

@@ -44,6 +44,13 @@ class FakeS3:
         return {}
 
     def get_object(self, *, Bucket, Key):  # noqa: N803
+        if (Bucket, Key) not in self.store:
+            # Mirror boto3: a missing object raises ClientError(NoSuchKey).
+            from botocore.exceptions import ClientError
+
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "Not Found"}}, "GetObject"
+            )
         body = self.store[(Bucket, Key)]["Body"]
         return {"Body": io.BytesIO(body)}
 
@@ -83,6 +90,21 @@ def test_r2_iter_raw_json_only_json_under_raw_prefix():
     got = dict(be.iter_raw_json())
     assert set(got.keys()) == {"raw/WorkX.json", "raw/Mac.json"}
     assert got["raw/WorkX.json"] == b'[{"x":1}]'
+
+
+def test_r2_download_returns_bytes_or_none():
+    fake = FakeS3()
+    be = R2StorageBackend(bucket="availcal", client=fake)
+    assert be.download("merged/busy.json") is None  # missing -> None, not an error
+    be.upload("merged/busy.json", b"[]", content_type="application/json")
+    assert be.download("merged/busy.json") == b"[]"
+
+
+def test_local_download_returns_bytes_or_none(tmp_path):
+    be = LocalStorageBackend(tmp_path)
+    assert be.download("merged/busy.json") is None
+    be.upload("merged/busy.json", b"[]", content_type="application/json")
+    assert be.download("merged/busy.json") == b"[]"
 
 
 def test_r2_requires_endpoint_or_account_id():

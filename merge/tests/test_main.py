@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -69,6 +70,23 @@ def test_run_local_emits_valid_merged_ics(tmp_path):
 
     # Per-source overlays written too.
     assert any(p.endswith(".ics") and "/raw/" in p for p in written)
+
+    # Notifications snapshot is written; first run establishes a baseline (no
+    # additions), and a second run flags a genuinely new block.
+    added_path = out_dir / "merged" / "added.json"
+    assert added_path.exists()
+    assert json.loads(added_path.read_text()) == []
+
+    (ics_dir / "extra.ics").write_text(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//t//EN\r\n"
+        "BEGIN:VEVENT\r\nUID:new@x\r\nDTSTART:20260701T090000Z\r\nDTEND:20260701T100000Z\r\n"
+        "SUMMARY:busy\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    )
+    run(cfg)
+    added = json.loads(added_path.read_text())
+    assert len(added) == 1
+    assert added[0]["start"] == "2026-07-01T09:00:00Z"
+    assert "firstSeen" in added[0]
 
 
 def test_run_collapses_same_source_only(tmp_path):

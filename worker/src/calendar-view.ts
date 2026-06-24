@@ -86,6 +86,23 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .month .mev { margin-top:2px; font-size:.64rem; color:#fff; border-radius:4px; padding:1px 4px;
     overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
   .month .more { font-size:.62rem; color:var(--muted); margin-top:1px; }
+  /* "new events" notifications */
+  .notify { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand);
+    border-radius:12px; box-shadow:var(--shadow); padding:.9rem 1rem; margin-top:1rem; }
+  .notify-head { display:flex; align-items:center; gap:.5rem; font-weight:800; font-size:.95rem; }
+  .notify-head .count { background:var(--brand); color:#fff; border-radius:99px; padding:.04rem .5rem; font-size:.74rem; }
+  .notify-head .dismiss-all { margin-left:auto; font:inherit; font-size:.8rem; border:0; background:transparent;
+    color:var(--muted); cursor:pointer; text-decoration:underline; }
+  .notify-head .dismiss-all:hover { color:var(--ink); }
+  .notify-list { list-style:none; margin:.65rem 0 0; padding:0; display:flex; flex-direction:column; gap:.4rem; }
+  .notify-item { display:flex; align-items:center; gap:.6rem; font-size:.85rem; padding:.45rem .55rem;
+    border:1px solid var(--line); border-radius:9px; background:#fbfcff; }
+  .notify-item .sw { width:.7rem; height:.7rem; border-radius:3px; flex:0 0 auto; }
+  .notify-item .src { font-weight:700; }
+  .notify-item .when { color:var(--muted); }
+  .notify-item .x { margin-left:auto; border:0; background:transparent; color:var(--muted); cursor:pointer;
+    font-size:1.15rem; line-height:1; padding:0 .25rem; }
+  .notify-item .x:hover { color:var(--ink); }
   .legend { display:flex; flex-wrap:wrap; gap:.6rem; margin:.8rem .2rem 0; font-size:.8rem; color:var(--muted); }
   .legend .k { display:inline-flex; align-items:center; gap:.35rem; }
   .legend .sw { width:.8rem; height:.8rem; border-radius:3px; display:inline-block; }
@@ -144,6 +161,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
       <div id="period"></div>
       <div class="legend" id="legend"></div>
     </div>
+    <div id="notify" class="notify" hidden></div>
     <div id="status" style="margin:.8rem .2rem;color:var(--muted);font-size:.85rem;">Loading…</div>
     <div class="scroll" id="timewrap"><div class="grid" id="grid"></div></div>
     <div class="month" id="month" hidden></div>
@@ -170,7 +188,9 @@ const statusEl = document.getElementById('status');
 const legendEl = document.getElementById('legend');
 const periodEl = document.getElementById('period');
 const hintEl = document.getElementById('hint');
+const notifyEl = document.getElementById('notify');
 let events = [];
+let additions = [];     // newly-added busy blocks (notifications)
 let view = 'week';      // 'day' | 'week' | 'month'
 let anchor = null;      // YYYY-MM-DD reference day
 
@@ -315,6 +335,54 @@ setInterval(() => {
   if (nl) nl.style.top = ((nowMinutes(tzSel.value)/1440)*DAY_PX) + 'px';
 }, 60000);
 
+// ---- "new events" notifications (dismissals tracked per-browser) ----
+const DISMISS_KEY = 'availcal_dismissed_notifications';
+function loadDismissed() { try { return new Set(JSON.parse(localStorage.getItem(DISMISS_KEY) || '[]')); } catch (e) { return new Set(); } }
+function saveDismissed(set) { try { localStorage.setItem(DISMISS_KEY, JSON.stringify([...set])); } catch (e) {} }
+function notifKey(n) { return n.source + '|' + n.start + '|' + n.end; }
+
+function renderNotifications() {
+  const dismissed = loadDismissed();
+  const tz = tzSel.value;
+  const items = (additions || []).filter((n) => !dismissed.has(notifKey(n)));
+  notifyEl.innerHTML = '';
+  if (!items.length) { notifyEl.hidden = true; return; }
+  notifyEl.hidden = false;
+
+  const head = el('div','notify-head','');
+  head.appendChild(el('span','', '🔔 New busy events'));
+  head.appendChild(el('span','count', String(items.length)));
+  const all = el('button','dismiss-all','Dismiss all'); all.type = 'button';
+  all.addEventListener('click', () => {
+    const d = loadDismissed(); items.forEach((n) => d.add(notifKey(n))); saveDismissed(d); renderNotifications();
+  });
+  head.appendChild(all);
+  notifyEl.appendChild(head);
+
+  const list = el('ul','notify-list','');
+  for (const n of items) {
+    const li = el('li','notify-item','');
+    const sw = el('span','sw',''); sw.style.background = labelColor(n.source); li.appendChild(sw);
+    li.appendChild(el('span','src', n.source));
+    li.appendChild(el('span','when', new Date(n.start).toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone: tz })));
+    const x = el('button','x','×'); x.type = 'button'; x.title = 'Dismiss';
+    x.addEventListener('click', () => { const d = loadDismissed(); d.add(notifKey(n)); saveDismissed(d); renderNotifications(); });
+    li.appendChild(x);
+    list.appendChild(li);
+  }
+  notifyEl.appendChild(list);
+}
+
+async function loadNotifications() {
+  try {
+    const res = await fetch('/notifications.json?token=' + encodeURIComponent(token));
+    if (!res.ok) return;
+    const data = await res.json();
+    additions = Array.isArray(data) ? data : [];
+    renderNotifications();
+  } catch (e) { /* notifications are best-effort */ }
+}
+
 async function load() {
   statusEl.textContent = 'Loading…';
   try {
@@ -331,7 +399,7 @@ async function load() {
   } catch (e) { statusEl.textContent = 'Could not load: ' + e.message; }
 }
 
-tzSel.addEventListener('change', render);
+tzSel.addEventListener('change', () => { render(); renderNotifications(); });
 document.getElementById('prev').addEventListener('click', () => {
   anchor = view === 'day' ? addDays(anchor, -1) : view === 'month' ? addMonths(anchor, -1) : addDays(anchor, -7);
   render();
@@ -345,6 +413,7 @@ for (const id of ['day','week','month']) {
   document.getElementById('v-' + id).addEventListener('click', () => { setView(id); render(); });
 }
 load();
+loadNotifications();
 </script>
 </body>
 </html>`;
