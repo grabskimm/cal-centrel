@@ -5,8 +5,12 @@
 .DESCRIPTION
     Creates (or replaces) a Scheduled Task "AvailCal Export" that runs the
     exporter hourly in the logged-in user's context (Outlook COM requires an
-    interactive profile). The SAS URL is read from the AVAILCAL_AGENT_SAS_URL
-    user environment variable so it is never baked into the task definition.
+    interactive profile). The upload target is read from USER environment
+    variables at run time, never baked into the task definition:
+      - AVAILCAL_AGENT_SAS_URL : the upload URL. For the Cloudflare Worker this
+        is https://availcal.<domain>/raw/<Label>.json; for Azure, a SAS URL.
+      - AVAILCAL_AGENT_TOKEN   : the Worker's AGENT_TOKEN (Cloudflare only).
+    Set them with `setx` BEFORE running this installer so the task inherits them.
 
 .PARAMETER SourcesToml
     Path to sources.toml passed through to the exporter.
@@ -49,5 +53,10 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings -Force | Out-Null
 
 Write-Output "Registered scheduled task '$TaskName' (hourly)."
-Write-Output "Ensure AVAILCAL_AGENT_SAS_URL is set as a USER environment variable."
+Write-Output "Ensure these are set as USER environment variables (the task inherits them):"
+Write-Output "  AVAILCAL_AGENT_SAS_URL  (Cloudflare Worker /raw/<Label>.json URL, or an Azure SAS URL)"
+Write-Output "  AVAILCAL_AGENT_TOKEN    (the Worker AGENT_TOKEN; not needed for Azure)"
+if ([string]::IsNullOrWhiteSpace($env:AVAILCAL_AGENT_SAS_URL)) {
+    Write-Warning "AVAILCAL_AGENT_SAS_URL is not currently set in this session."
+}
 Write-Output "Test now with:  Start-ScheduledTask -TaskName '$TaskName'"

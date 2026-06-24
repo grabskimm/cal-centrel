@@ -23,11 +23,17 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- SAS URL injected from the user keychain/env; never hard-coded here. -->
+    <!-- Upload target + auth, injected at install time (never hard-coded here).
+         Cloudflare Worker: AVAILCAL_AGENT_SAS_URL is the upload URL
+         https://availcal.<domain>/raw/<Label>.json and AVAILCAL_AGENT_TOKEN is
+         the Worker's AGENT_TOKEN. Azure: the SAS URL alone (token left blank).
+         launchd does NOT inherit your shell env, so both must live here. -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>AVAILCAL_AGENT_SAS_URL</key>
         <string>__SAS_URL__</string>
+        <key>AVAILCAL_AGENT_TOKEN</key>
+        <string>__TOKEN__</string>
     </dict>
 
     <key>StandardOutPath</key>
