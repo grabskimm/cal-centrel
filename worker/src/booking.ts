@@ -80,6 +80,13 @@ export function bookingHtml(cfg: BookingPageCfg): string {
 const CFG = ${cfgJson};
 ${TZ_PICKER_JS}
 ${CALENDAR_PICKER_JS}
+// esbuild builds the Worker with keepNames, which wraps inner helper functions
+// with __name(...) calls and defines __name at the top of the WORKER bundle.
+// The functions below are embedded via .toString() into this BROWSER page, so
+// their source carries __name(...) calls with no __name in scope. Define a no-op
+// shim so the embedded copies run. (Without this, icsContent() throws
+// "__name is not defined" on click and the booking modal never opens.)
+var __name = function (f) { return f; };
 // Embedded verbatim (single source of truth) from calendar-links.ts/email-links.ts.
 const googleCalendarUrl = ${googleCalendarUrl.toString()};
 const outlookComposeUrl = ${outlookComposeUrl.toString()};
@@ -134,10 +141,14 @@ function openModal(s, tz) {
   cr.appendChild(linkBtn('Outlook Calendar', outlookComposeUrl(s, cfg, CFG.flavor), {}));
   cr.appendChild(linkBtn('Download .ics (Apple/other)', icsUrl, { download:true, full:true }));
 
+  // Force visibility explicitly — don't rely solely on the [hidden] attribute /
+  // CSS, which is the kind of thing that can silently no-op in some setups.
   modal.hidden = false;
+  modal.style.display = 'flex';
+  statusEl.textContent = '';
  } catch (err) { showErr('Could not open booking options: ' + (err && err.message ? err.message : err)); }
 }
-function closeModal(){ modal.hidden = true; }
+function closeModal(){ modal.hidden = true; modal.style.display = 'none'; }
 $('x').addEventListener('click', closeModal);
 modal.addEventListener('click', (e)=>{ if (e.target===modal) closeModal(); });
 document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') closeModal(); });
@@ -147,7 +158,8 @@ document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') closeModal(); 
 const fromParam = (new URLSearchParams(location.search).get('from') || '').slice(0, 10);
 const picker = createPicker({
   calEl:$('cal'), timesEl:$('times'), monthLabelEl:$('ml'), prevEl:$('prev'), nextEl:$('next'),
-  getTz: ()=>tzSel.value, getSlots: ()=>cache, onTime: (s, tz)=>openModal(s, tz),
+  getTz: ()=>tzSel.value, getSlots: ()=>cache,
+  onTime: (s, tz)=>{ statusEl.style.color=''; statusEl.textContent='Opening booking options…'; openModal(s, tz); },
   initialDate: fromParam,
 });
 
