@@ -21,6 +21,10 @@ These are the working defaults chosen during the build (override via env/params)
 Runs the merge Container on an hourly Worker cron, stores in R2, serves the feed.
 Requires a plan with **Containers** (Enterprise).
 
+> **Full step-by-step (clone → live), including hosts, sources, and agents:**
+> [`worker/README.md` → Deploy end-to-end](../worker/README.md#deploy-end-to-end-clone--live).
+> The quick summary below is the ops cheat-sheet.
+
 ```bash
 # 1. Create the R2 bucket and an Object Read&Write API token (dashboard or CLI)
 wrangler r2 bucket create availcal

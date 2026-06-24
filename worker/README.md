@@ -1,67 +1,146 @@
 # AvailCal — Cloudflare Worker + Container
 
-The Cloudflare deployment of AvailCal. One Worker does three jobs, all
+The Cloudflare deployment of AvailCal. One Worker does four jobs, all
 scale-to-zero:
 
 1. **Hourly Cron Trigger** boots the **merge Container** (the `merge/` Python
    image) and calls `POST /run`, which pulls all sources, merges, and writes
-   `merged/availability.ics` (+ per-source overlays) to **R2**.
-2. **Serves the feed**: `GET /availability.ics?token=…` streams from R2.
+   `merged/availability.ics` (+ per-source overlays, + optional anonymized public
+   feeds) to **R2**.
+2. **Serves the private feed**: `GET /availability.ics?token=…` streams from R2.
 3. **Accepts device-agent uploads**: `PUT /raw/<source>.json` (Bearer auth) → R2.
+4. **Public scheduling host** (optional, separate domain, token-free): anonymized
+   `/availability.ics`, `/freebusy.json`, computed `/slots.json`, and a demo page.
 
 ```
 Cron (hourly) ─► Worker.scheduled() ─► Container POST /run ─► pull/merge/emit ─► R2
 Calendar client ─► Worker GET /availability.ics?token=… ─► R2 (text/calendar)
 Device agent  ─► Worker PUT /raw/<src>.json (Bearer) ─► R2
+Webpage       ─► Worker GET /slots.json (public host, CORS) ─► free slots JSON
 ```
 
 > Requires a Cloudflare plan with **Containers** (Enterprise). R2 + Workers +
 > Cron are on standard paid plans.
 
-## Prerequisites
+## Deploy end-to-end (clone → live)
 
-- Node 18+ and `npm`.
-- `wrangler` (installed as a dev dependency here): `npm install`.
-- An R2 bucket named `availcal` (see [`infra/cloudflare/README.md`](../infra/cloudflare/README.md)).
-- An R2 API token (Object Read & Write on that bucket) for the Container.
+Do these in order. Steps 1–9 stand up the private token feed; steps 3 + 10
+add the public/scheduling host; step 11 wires device-bound accounts.
 
-## Configure
+### 0. Prerequisites
+- A Cloudflare account on a plan with **Containers** (Enterprise); R2, Workers,
+  and Cron Triggers (paid).
+- **Node 22+** and `npm` (wrangler 4.x requires Node ≥ 22). `wrangler` ships as a
+  dev dependency here — no global install.
+- Docker available locally if you run `wrangler deploy` from your machine (it
+  builds the Container image); CI runners already have it.
 
-Non-secret config lives in `wrangler.jsonc` (`vars`). Everything sensitive is a
-**Workers Secret**:
-
+### 1. Clone & install
 ```bash
-cd worker
-npm install
-
-# Auth tokens (generate strong random values, e.g. `openssl rand -hex 32`)
-wrangler secret put FEED_TOKEN      # clients append ?token=<this>
-wrangler secret put AGENT_TOKEN     # device agents send Authorization: Bearer <this>
-wrangler secret put RUN_TOKEN       # Worker<->Container + manual POST /run
-
-# R2 credentials handed to the Container (boto3 S3 against R2)
-wrangler secret put AVAILCAL_R2_ACCOUNT_ID
-wrangler secret put AVAILCAL_R2_ACCESS_KEY_ID
-wrangler secret put AVAILCAL_R2_SECRET_ACCESS_KEY
-
-# Secret ICS feed URLs (rawname=url,rawname=url; matches sources.toml [ics] keys)
-wrangler secret put AVAILCAL_ICS_FEEDS
+git clone https://github.com/grabskimm/cal-centrel.git
+cd cal-centrel/worker
+npm ci
+npx wrangler login          # or export CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
 ```
 
-For local development, copy `.dev.vars.example` to `.dev.vars` (gitignored) and
-fill it in; `wrangler dev` reads it.
-
-## Typecheck / deploy
-
+### 2. Create the R2 bucket + an API token
 ```bash
-npm run typecheck        # tsc --noEmit
-npm run deploy           # wrangler deploy (builds + pushes the Container image)
+npx wrangler r2 bucket create availcal
+```
+Then in the dashboard: **R2 → Manage R2 API Tokens → Create** an **Object Read &
+Write** token scoped to the `availcal` bucket. Note the **Account ID**, **Access
+Key ID**, and **Secret Access Key** (used in step 5). Details:
+[`infra/cloudflare/README.md`](../infra/cloudflare/README.md).
+
+### 3. Choose your hosts (edit `wrangler.jsonc`)
+- **Private feed (token):** works on `availcal.<your-subdomain>.workers.dev` out
+  of the box, or a custom domain `availcal.example.com`.
+- **Public + scheduling host (no token):** needs a **separate custom domain**
+  (e.g. `availability.example.com`) — you can't host-split on a single
+  `*.workers.dev` URL. Skip if you don't want the public endpoints.
+
+In `wrangler.jsonc`:
+- Uncomment/extend `routes` for your custom domain(s). The zone must already be
+  in this Cloudflare account; Cloudflare provisions DNS + TLS on deploy.
+- Set `PUBLIC_FEED_HOST` to your public hostname (or `""` to disable the public
+  feed + scheduling entirely).
+- Set `AVAILCAL_EMIT_PUBLIC` (`true`/`false`), `AVAILCAL_DEFAULT_TZ`, and the
+  `SCHEDULE_*` defaults to taste.
+
+### 4. Define your sources (labels)
+Edit [`../merge/sources.default.toml`](../merge/sources.default.toml): map each
+ICS feed rawname, CalDAV account, or device calendar name to a **one-word label**
+(this becomes the `SUMMARY`/`CATEGORIES` on the private feed). It is baked into
+the Container image at build (override at runtime with `AVAILCAL_SOURCES_TOML` if
+you prefer).
+
+> Channels that work cleanly on Workers: **secret-ICS feeds** (Google/Outlook)
+> and **device-agent JSON** (step 11). CalDAV (vdirsyncer) needs extra in-image
+> config and is an advanced add-on here.
+
+### 5. Set secrets (`wrangler secret put`)
+Everything sensitive is a Workers Secret — never in `wrangler.jsonc` or git:
+```bash
+# auth tokens — generate strong random values, e.g. `openssl rand -hex 32`
+npx wrangler secret put FEED_TOKEN      # calendar clients append ?token=<this>
+npx wrangler secret put AGENT_TOKEN     # device agents send Authorization: Bearer <this>
+npx wrangler secret put RUN_TOKEN       # Worker<->Container + manual POST /run
+
+# R2 credentials handed to the Container (boto3 → R2 S3 API)
+npx wrangler secret put AVAILCAL_R2_ACCOUNT_ID
+npx wrangler secret put AVAILCAL_R2_ACCESS_KEY_ID
+npx wrangler secret put AVAILCAL_R2_SECRET_ACCESS_KEY
+
+# secret ICS feed URLs: rawname=url,rawname=url  (rawnames match [ics] in sources.toml)
+npx wrangler secret put AVAILCAL_ICS_FEEDS
 ```
 
-`wrangler deploy` builds `../merge/Dockerfile`, pushes it to the Cloudflare
-container registry, provisions the Durable Object + Container, binds R2, and
-registers the hourly cron. (In a restricted build network you'd hit the same
-Docker Hub / pip egress limits as any image build; in normal CI it just works.)
+### 6. Validate
+```bash
+npm run typecheck     # tsc --noEmit
+npm test              # vitest — slot-computation unit tests
+npx wrangler types    # validates wrangler.jsonc + bindings
+```
+
+### 7. Deploy
+```bash
+npx wrangler deploy
+```
+Builds `../merge/Dockerfile`, pushes it to the Cloudflare container registry,
+provisions the Durable Object + Container, binds R2, registers the hourly cron,
+and (if `routes` are set) provisions custom-domain DNS + TLS.
+
+### 8. Trigger the first run & verify
+```bash
+curl -X POST https://availcal.example.com/run -H "Authorization: Bearer <RUN_TOKEN>"
+npx wrangler tail                                   # watch logs live
+npx wrangler r2 object get availcal/merged/availability.ics --file -   # sanity
+```
+The hourly cron then keeps it fresh; you don't need to call `/run` again.
+
+### 9. Subscribe calendar clients (private feed)
+Apple Calendar / Thunderbird / Fantastical →
+`https://availcal.example.com/availability.ics?token=<FEED_TOKEN>` (or the
+`*.workers.dev` host). See [`docs/SUBSCRIBE.md`](../docs/SUBSCRIBE.md).
+
+### 10. (Optional) public feed + web scheduling
+With step 3's public host set and `AVAILCAL_EMIT_PUBLIC=true`, the public host
+serves the anonymized ICS, `/freebusy.json`, `/slots.json`, and a demo page at
+`/` — all token-free. See [Public anonymized feed](#public-anonymized-feed-optional)
+and [Web scheduling endpoints](#web-scheduling-endpoints-on-the-public-host).
+
+### 11. (Optional) device agents — Conditional-Access work accounts
+On each machine where that account is signed in, set:
+```bash
+AVAILCAL_AGENT_SAS_URL=https://availcal.example.com/raw/<Label>.json
+AVAILCAL_AGENT_TOKEN=<AGENT_TOKEN>
+```
+then install per [`agents/windows/README.md`](../agents/windows/README.md) or
+[`agents/macos/README.md`](../agents/macos/README.md). Hourly uploads land in R2
+and fold into the next merge.
+
+For local development instead of deploying: `cp .dev.vars.example .dev.vars`
+(fill in), then `npx wrangler dev`.
 
 ## Endpoints
 
