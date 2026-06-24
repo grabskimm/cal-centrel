@@ -6,10 +6,13 @@
     <key>Label</key>
     <string>com.availcal.export</string>
 
-    <!-- install.sh rewrites these paths to your actual install location. -->
+    <!-- install.sh rewrites these paths to your actual install location and
+         points the interpreter at the dedicated venv it creates
+         (__INSTALL_DIR__/venv/bin/python) so PyObjC is always present and there
+         is no ambiguity about which python3 runs. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
+        <string>__PYTHON_BIN__</string>
         <string>__INSTALL_DIR__/export_calendar.py</string>
         <string>--sources-toml</string>
         <string>__INSTALL_DIR__/sources.toml</string>

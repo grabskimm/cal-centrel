@@ -21,12 +21,39 @@ LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 PLIST_DST="$LAUNCH_AGENTS/com.availcal.export.plist"
 SAS_URL="${AVAILCAL_AGENT_SAS_URL:-}"
 TOKEN="${AVAILCAL_AGENT_TOKEN:-}"
+# Base interpreter used only to BUILD the venv. The system python3 is the right
+# default on macOS; override with AVAILCAL_BASE_PYTHON if you must.
+BASE_PYTHON="${AVAILCAL_BASE_PYTHON:-/usr/bin/python3}"
+VENV_DIR="$INSTALL_DIR/venv"
+PYTHON_BIN="$VENV_DIR/bin/python"
 
 if [[ ! -f "$INSTALL_DIR/export_calendar.py" ]]; then
   echo "error: $INSTALL_DIR/export_calendar.py not found." >&2
   echo "Copy export_calendar.py and sources.toml into $INSTALL_DIR first." >&2
   exit 1
 fi
+
+if [[ ! -x "$BASE_PYTHON" ]]; then
+  echo "error: base python '$BASE_PYTHON' not found or not executable." >&2
+  echo "Set AVAILCAL_BASE_PYTHON to a python3 (3.9+) on this Mac." >&2
+  exit 1
+fi
+
+# Build a dedicated venv with PyObjC so the agent never depends on whatever
+# python3 happens to be on PATH. Idempotent: re-running refreshes the deps.
+echo "Creating venv at $VENV_DIR (base: $BASE_PYTHON)..."
+"$BASE_PYTHON" -m venv "$VENV_DIR"
+"$PYTHON_BIN" -m pip install --upgrade --quiet pip
+echo "Installing pyobjc-framework-EventKit into the venv..."
+"$PYTHON_BIN" -m pip install --quiet pyobjc-framework-EventKit
+
+# Fail fast if EventKit still can't be imported by the venv interpreter.
+if ! "$PYTHON_BIN" -c "import EventKit" 2>/dev/null; then
+  echo "error: EventKit failed to import in the venv even after install." >&2
+  echo "Check that $BASE_PYTHON is a real CPython (3.9+) and re-run." >&2
+  exit 1
+fi
+echo "EventKit OK in venv."
 
 if [[ -z "$SAS_URL" ]]; then
   echo "warning: AVAILCAL_AGENT_SAS_URL is empty. The agent will fail to upload" >&2
@@ -46,6 +73,7 @@ mkdir -p "$LAUNCH_AGENTS"
 # Render the plist template with concrete paths + upload URL + token (escaped).
 esc() { printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'; }
 sed -e "s/__INSTALL_DIR__/$(esc "$INSTALL_DIR")/g" \
+    -e "s/__PYTHON_BIN__/$(esc "$PYTHON_BIN")/g" \
     -e "s/__SAS_URL__/$(esc "$SAS_URL")/g" \
     -e "s/__TOKEN__/$(esc "$TOKEN")/g" \
     "$PLIST_SRC" > "$PLIST_DST"
@@ -61,4 +89,4 @@ echo
 echo "IMPORTANT: the FIRST run triggers the macOS Calendar (TCC) permission"
 echo "prompt. If you don't see it, run a manual --dry-run from Terminal once so"
 echo "the prompt appears and you can Allow it:"
-echo "  python3 $INSTALL_DIR/export_calendar.py --dry-run --sources-toml $INSTALL_DIR/sources.toml"
+echo "  $PYTHON_BIN $INSTALL_DIR/export_calendar.py --dry-run --sources-toml $INSTALL_DIR/sources.toml"
