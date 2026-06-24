@@ -9,13 +9,15 @@ describe('bookingHtml', () => {
     flavor: 'office',
     tz: 'America/New_York',
     durationMin: '30',
+    heading: 'Book a time with Mendel',
     fallbackTz: 'America/Los_Angeles',
     slotsBase: '',
   });
 
-  it('injects the deployment config', () => {
+  it('injects the deployment config + personalised heading', () => {
     expect(html).toContain('"owner":"me@corp.com"');
     expect(html).toContain('"flavor":"office"');
+    expect(html).toContain('Book a time with Mendel');
   });
 
   it('consumes AvailCal /slots.json', () => {

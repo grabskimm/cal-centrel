@@ -188,6 +188,11 @@ async function load() {
   try {
     const res = await fetch('/busy.json?token=' + encodeURIComponent(token));
     if (res.status === 403) { statusEl.textContent = 'Invalid or missing token.'; return; }
+    if (res.status === 404) {
+      events = []; render();
+      statusEl.textContent = 'No calendar data yet — trigger a sync (POST /run) or wait for the hourly update.';
+      return;
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     events = await res.json();
     render();
