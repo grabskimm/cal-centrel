@@ -243,14 +243,17 @@ def main(argv: list[str] | None = None) -> int:
                          "(or AVAILCAL_AGENT_CF_ACCESS_CLIENT_SECRET)")
     ap.add_argument("--sources-toml", default="./sources.toml")
     ap.add_argument("--horizon-days", type=int, default=90)
+    ap.add_argument("--out", default="",
+                    help="write the busy JSON to this file and skip upload "
+                         "(handy for a manual `curl --data-binary @file` upload)")
     args = ap.parse_args(argv)
 
     if EKEventStore is None:
         die("EventKit/PyObjC not available. Run: "
             "pip install pyobjc-framework-EventKit (macOS 14+).")
 
-    if not args.dry_run and not args.sas_url:
-        die("no --sas-url and AVAILCAL_AGENT_SAS_URL is empty (required unless --dry-run).")
+    if not args.dry_run and not args.out and not args.sas_url:
+        die("no --sas-url and AVAILCAL_AGENT_SAS_URL is empty (required unless --dry-run/--out).")
 
     labels = load_device_labels(args.sources_toml)
 
@@ -267,6 +270,12 @@ def main(argv: list[str] | None = None) -> int:
     if not busy:
         print(f"warning: 0 busy events in the next {args.horizon_days} days. "
               "Verify this is correct.", file=sys.stderr)
+
+    if args.out:
+        Path(args.out).write_bytes(payload)
+        print(f"Wrote {len(busy)} busy interval(s) to {args.out}. Nothing uploaded.",
+              file=sys.stderr)
+        return 0
 
     if args.dry_run:
         print(payload.decode("utf-8"))
