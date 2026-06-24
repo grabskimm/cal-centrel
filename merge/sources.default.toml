@@ -1,6 +1,10 @@
-# Default in-image source registry. Override with AVAILCAL_SOURCES_TOML in
-# production (e.g. a Key Vault-mounted or config-mounted file). See the
-# repo-root sources.example.toml for the documented, fuller example.
+# PLACEHOLDER source registry baked into the image. This is committed to git, so
+# it must contain NO real/private data — only generic example labels.
+#
+# Supply your REAL mapping privately, never in git, via either:
+#   * the SOURCES_TOML Workers Secret (Cloudflare) — inline TOML, recommended; or
+#   * AVAILCAL_SOURCES_TOML pointing at a mounted/uncommitted file.
+# Whichever is set overrides this placeholder at runtime.
 [ics]
 GoogPersonal = "Perso"
 OutlookPub   = "Work"

@@ -84,9 +84,21 @@ def _validate_labels(maps: dict[str, dict[str, str]]) -> None:
             seen[label] = f"{section}:{rawname}"
 
 
-def load_sources(path: str | Path) -> SourceRegistry:
-    """Load and validate ``sources.toml``."""
-    data = tomllib.loads(Path(path).read_text())
+def _registry_from_data(data: dict) -> SourceRegistry:
     maps = {section: dict(data.get(section, {})) for section in _SECTIONS}
     _validate_labels(maps)
     return SourceRegistry(ics=maps["ics"], caldav=maps["caldav"], device=maps["device"])
+
+
+def load_sources(path: str | Path) -> SourceRegistry:
+    """Load and validate ``sources.toml`` from a file path."""
+    return _registry_from_data(tomllib.loads(Path(path).read_text()))
+
+
+def load_sources_str(text: str) -> SourceRegistry:
+    """Load and validate a ``sources.toml`` document from an inline string.
+
+    Lets the real (private) registry be supplied as a secret/env var instead of a
+    file committed to git or baked into the image.
+    """
+    return _registry_from_data(tomllib.loads(text))

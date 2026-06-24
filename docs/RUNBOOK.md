@@ -43,6 +43,7 @@ wrangler secret put AVAILCAL_R2_ACCOUNT_ID
 wrangler secret put AVAILCAL_R2_ACCESS_KEY_ID
 wrangler secret put AVAILCAL_R2_SECRET_ACCESS_KEY
 wrangler secret put AVAILCAL_ICS_FEEDS         # rawname=url,rawname=url
+wrangler secret put SOURCES_TOML               # OPTIONAL: real label registry as inline TOML (keeps it out of git)
 
 # 4. (Optional) custom domain: uncomment the `routes` line in wrangler.jsonc
 #    (set availcal.example.com to a zone in this account) before deploying.

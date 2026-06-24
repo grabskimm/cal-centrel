@@ -47,6 +47,9 @@ export interface Env {
   AVAILCAL_R2_ACCESS_KEY_ID: string;
   AVAILCAL_R2_SECRET_ACCESS_KEY: string;
   AVAILCAL_ICS_FEEDS: string;
+  // Inline sources.toml content (secret). Keeps the real label registry out of
+  // git/the image; overrides the baked placeholder at runtime.
+  SOURCES_TOML?: string;
   AVAILCAL_DEFAULT_TZ: string;
   AVAILCAL_HORIZON_DAYS: string;
   AVAILCAL_INCLUDE_TENTATIVE: string;
@@ -105,8 +108,10 @@ export class MergeContainer extends Container<Env> {
       AVAILCAL_R2_ACCOUNT_ID: env.AVAILCAL_R2_ACCOUNT_ID,
       AVAILCAL_R2_ACCESS_KEY_ID: env.AVAILCAL_R2_ACCESS_KEY_ID,
       AVAILCAL_R2_SECRET_ACCESS_KEY: env.AVAILCAL_R2_SECRET_ACCESS_KEY,
-      // Sources + merge behaviour.
+      // Sources + merge behaviour. The real label registry is supplied inline
+      // via the SOURCES_TOML secret (overrides the image's placeholder).
       AVAILCAL_ICS_FEEDS: env.AVAILCAL_ICS_FEEDS ?? '',
+      AVAILCAL_SOURCES_TOML_CONTENT: env.SOURCES_TOML ?? '',
       AVAILCAL_DEFAULT_TZ: env.AVAILCAL_DEFAULT_TZ ?? 'America/New_York',
       AVAILCAL_HORIZON_DAYS: env.AVAILCAL_HORIZON_DAYS ?? '90',
       AVAILCAL_INCLUDE_TENTATIVE: env.AVAILCAL_INCLUDE_TENTATIVE ?? 'true',

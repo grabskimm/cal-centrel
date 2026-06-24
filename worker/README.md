@@ -79,6 +79,13 @@ you prefer).
 > Channels that work cleanly on Workers: **secret-ICS feeds** (Google/Outlook)
 > and **device-agent JSON** (step 11). CalDAV (vdirsyncer) needs extra in-image
 > config and is an advanced add-on here.
+>
+> **Keep your real mapping private.** `merge/sources.default.toml` is committed,
+> so it must hold only generic placeholders. Put your actual labels in the
+> **`SOURCES_TOML` secret** (step 5) — it's passed to the container at runtime and
+> overrides the placeholder, so nothing private lands in git or the image. This
+> also means CI/Actions deploys use your real mapping (from the secret) without it
+> ever being committed.
 
 ### 5. Set secrets (`wrangler secret put`)
 Everything sensitive is a Workers Secret — never in `wrangler.jsonc` or git:
@@ -95,6 +102,11 @@ npx wrangler secret put AVAILCAL_R2_SECRET_ACCESS_KEY
 
 # secret ICS feed URLs: rawname=url,rawname=url  (rawnames match [ics] in sources.toml)
 npx wrangler secret put AVAILCAL_ICS_FEEDS
+
+# OPTIONAL: your real source registry as inline TOML, kept private (out of git
+# and the image). Overrides the committed placeholder. e.g.:
+#   printf '[ics]\nGoogPersonal="LoganG"\nOutlookPub="MendelG"\n' | npx wrangler secret put SOURCES_TOML
+npx wrangler secret put SOURCES_TOML
 ```
 
 ### 6. Validate

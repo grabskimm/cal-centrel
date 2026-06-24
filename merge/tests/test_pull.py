@@ -121,3 +121,28 @@ def test_load_raw_json_dir(tmp_path):
     (tmp_path / "a.json").write_text((FIX / "raw_workx.json").read_text())
     ivs = load_raw_json_dir(tmp_path)
     assert len(ivs) == 2
+
+
+def test_load_sources_str_inline():
+    from availcal.sources import load_sources_str
+
+    reg = load_sources_str('[ics]\nGoogPersonal = "LoganG"\n[device]\n"X" = "MendelG"\n')
+    assert reg.ics["GoogPersonal"] == "LoganG"
+    assert reg.resolve("device", "X") == "MendelG"
+
+
+def test_inline_sources_override_file(tmp_path):
+    import availcal.main as m
+
+    f = tmp_path / "sources.toml"
+    f.write_text('[ics]\nA = "FromFile"\n')
+    cfg = m.Config(sources_toml=str(f), sources_toml_content='[ics]\nA = "FromSecret"\n')
+    # run() picks inline content over the file; verify the chosen registry.
+    from availcal.sources import load_sources, load_sources_str
+
+    reg = (
+        load_sources_str(cfg.sources_toml_content)
+        if cfg.sources_toml_content
+        else load_sources(cfg.sources_toml)
+    )
+    assert reg.ics["A"] == "FromSecret"

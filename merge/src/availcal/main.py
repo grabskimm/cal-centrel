@@ -43,7 +43,7 @@ from .pull import (
     read_vdir,
     run_vdirsyncer,
 )
-from .sources import SourceRegistry, load_sources
+from .sources import SourceRegistry, load_sources, load_sources_str
 from .storage import (
     MERGED_BUSY_OBJECT,
     MERGED_OBJECT,
@@ -83,6 +83,9 @@ def _parse_feeds(spec: str) -> dict[str, str]:
 @dataclass
 class Config:
     sources_toml: str
+    # Inline sources.toml content (e.g. from a secret); overrides the file when set,
+    # so the real registry never needs to be committed or baked into the image.
+    sources_toml_content: str | None = None
     ics_feeds: dict[str, str] = field(default_factory=dict)
     horizon_days: int = 90
     # Expansion window start. Defaults to "now" (the production semantic:
@@ -133,6 +136,7 @@ class Config:
 
         return cls(
             sources_toml=env.get("AVAILCAL_SOURCES_TOML", "./sources.toml"),
+            sources_toml_content=env.get("AVAILCAL_SOURCES_TOML_CONTENT") or None,
             ics_feeds=_parse_feeds(env.get("AVAILCAL_ICS_FEEDS", "")),
             horizon_days=int(env.get("AVAILCAL_HORIZON_DAYS", "90")),
             window_start=window_start,
@@ -287,7 +291,13 @@ def write_outputs(
 
 def run(cfg: Config) -> list[str]:
     """Full pipeline. Returns written output paths/blob names."""
-    registry = load_sources(cfg.sources_toml)
+    # Inline content (a secret) wins over the baked/committed file, keeping the
+    # real source registry out of git and out of the image.
+    registry = (
+        load_sources_str(cfg.sources_toml_content)
+        if cfg.sources_toml_content
+        else load_sources(cfg.sources_toml)
+    )
     _resolve_secrets_from_keyvault(cfg)
 
     intervals = gather_intervals(cfg, registry)
