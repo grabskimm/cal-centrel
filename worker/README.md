@@ -93,9 +93,43 @@ Enable it:
    `availability.example.com`) and add that hostname to the `routes` block.
 3. `npx wrangler deploy`.
 
-On `PUBLIC_FEED_HOST` the Worker serves **only** the public feed — the token
+On `PUBLIC_FEED_HOST` the Worker serves **only** anonymized reads — the token
 feed, per-source overlays, uploads, and `/run` are all unreachable there, so the
 public hostname can never expose labels or accept writes.
+
+### Web scheduling endpoints (on the public host)
+
+For driving a "pick a time" UI from a webpage, the public host also serves JSON
+with permissive CORS (`Access-Control-Allow-Origin: *`):
+
+| Path | Returns |
+| --- | --- |
+| `GET /` | A self-contained demo page that renders bookable slots. |
+| `GET /freebusy.json` | Anonymized busy blocks: `[{"start","end"}]` (UTC). |
+| `GET /slots.json?…` | Computed **free** slots (see params below). |
+| `GET /availability.ics` | The anonymized ICS (calendar subscription). |
+
+`/slots.json` query params (all optional; env sets the defaults):
+
+| Param | Default | Meaning |
+| --- | --- | --- |
+| `from` / `to` | today / +7d | date range (YYYY-MM-DD), clamped to `SCHEDULE_MAX_RANGE_DAYS` |
+| `tz` | `AVAILCAL_DEFAULT_TZ` | IANA timezone the working hours are interpreted in |
+| `duration` | `SCHEDULE_SLOT_MINUTES` | slot length in minutes |
+| `step` | = `duration` | gap between slot starts |
+| `workStart` / `workEnd` | `SCHEDULE_WORK_START/END` | working hours, local `HH:MM` |
+| `days` | `SCHEDULE_DAYS` | allowed weekdays, e.g. `1-5` (0=Sun) |
+
+Response: `{ "tz", "from", "to", "durationMin", "slots": [{"start","end"}] }`,
+slot times in UTC. Slot computation handles DST correctly (unit-tested in
+`test/slots.test.ts`). It's **read-only** — slots come from your busy data; the
+page wires the chosen slot into its own booking flow (the demo dispatches an
+`availcal:slot-selected` event). Example fetch:
+
+```js
+const r = await fetch('https://availability.example.com/slots.json?duration=30&tz=America/New_York');
+const { slots } = await r.json();   // [{ start: '2026-06-24T13:00:00.000Z', end: '…' }, …]
+```
 
 > ⚠️ This endpoint is genuinely public: anyone with the URL sees your busy/free
 > windows (not the contents). It's anonymized — no titles, names, or source

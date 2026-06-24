@@ -26,7 +26,12 @@ from pathlib import Path
 
 import icalendar
 
-from .emit import emit_merged_ics, emit_per_source, emit_public_ics
+from .emit import (
+    emit_merged_ics,
+    emit_per_source,
+    emit_public_freebusy_json,
+    emit_public_ics,
+)
 from .merge import merge_intervals
 from .models import BusyInterval
 from .normalize import normalize_calendar
@@ -40,6 +45,7 @@ from .pull import (
 from .sources import SourceRegistry, load_sources
 from .storage import (
     MERGED_OBJECT,
+    PUBLIC_FREEBUSY_OBJECT,
     PUBLIC_OBJECT,
     RAW_PREFIX,
     AzureBlobBackend,
@@ -248,6 +254,7 @@ def write_outputs(
     merged_ics: bytes,
     per_source: dict[str, bytes],
     public_ics: bytes | None = None,
+    public_json: bytes | None = None,
 ) -> list[str]:
     """Write merged + optional per-source + optional public feeds to the backend.
 
@@ -262,6 +269,10 @@ def write_outputs(
     written = [backend.upload(MERGED_OBJECT, merged_ics)]
     if public_ics is not None:
         written.append(backend.upload(PUBLIC_OBJECT, public_ics))
+    if public_json is not None:
+        written.append(
+            backend.upload(PUBLIC_FREEBUSY_OBJECT, public_json, "application/json")
+        )
     for label, data in per_source.items():
         written.append(backend.upload(f"{RAW_PREFIX}{label}.ics", data))
     return written
@@ -284,11 +295,12 @@ def run(cfg: Config) -> list[str]:
 
     merged_ics = emit_merged_ics(merged)
     per_source = emit_per_source(merged) if cfg.emit_per_source else {}
-    # Public feed flattens across sources from the FULL interval set so no source
-    # boundary or count survives.
+    # Public feeds flatten across sources from the FULL interval set so no source
+    # boundary or count survives. ICS for subscription, JSON for web scheduling.
     public_ics = emit_public_ics(intervals) if cfg.emit_public else None
+    public_json = emit_public_freebusy_json(intervals) if cfg.emit_public else None
 
-    written = write_outputs(cfg, merged_ics, per_source, public_ics)
+    written = write_outputs(cfg, merged_ics, per_source, public_ics, public_json)
     log.info("wrote %d output(s): %s", len(written), ", ".join(written))
     return written
 

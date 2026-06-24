@@ -197,3 +197,31 @@ def test_parse_feeds_fails_fast_on_malformed():
     for bad in ("noequals", "=https://x", "A="):
         with pytest.raises(ValueError, match="malformed"):
             _parse_feeds(bad)
+
+
+def test_run_emits_public_freebusy_json(tmp_path):
+    import json as _json
+
+    from availcal.storage import PUBLIC_FREEBUSY_OBJECT
+
+    sources = _write_sources(tmp_path)
+    ics_dir = tmp_path / "ics"
+    ics_dir.mkdir()
+    (ics_dir / "dst.ics").write_text((FIX / "dst.ics").read_text())
+    out_dir = tmp_path / "out"
+    cfg = Config(
+        sources_toml=str(sources),
+        local_ics_dir=str(ics_dir),
+        output_dir=str(out_dir),
+        emit_per_source=False,
+        emit_public=True,
+        window_start=datetime(2026, 1, 1, tzinfo=UTC),
+        horizon_days=365,
+    )
+    written = run(cfg)
+    assert any(PUBLIC_FREEBUSY_OBJECT in w for w in written)
+    fb = out_dir / PUBLIC_FREEBUSY_OBJECT
+    assert fb.exists()
+    arr = _json.loads(fb.read_text())
+    assert arr and all(set(o) == {"start", "end"} for o in arr)
+    assert "Work" not in fb.read_text()

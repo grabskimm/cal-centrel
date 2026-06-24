@@ -51,10 +51,18 @@
     "AVAILCAL_R2_BUCKET": "availcal",
 
     // Public anonymized feed. Set AVAILCAL_EMIT_PUBLIC=true to have the merge job
-    // write public/availability.ics, and PUBLIC_FEED_HOST to the hostname that
-    // serves it WITHOUT a token. Empty host = public feed not exposed.
+    // write public/availability.ics + public/freebusy.json, and PUBLIC_FEED_HOST
+    // to the hostname that serves them WITHOUT a token. Empty host = not exposed.
     "AVAILCAL_EMIT_PUBLIC": "true",
-    "PUBLIC_FEED_HOST": "availability.example.com"
+    "PUBLIC_FEED_HOST": "availability.example.com",
+
+    // Defaults for the /slots.json scheduling endpoint (all overridable per
+    // request via query params).
+    "SCHEDULE_SLOT_MINUTES": "30",
+    "SCHEDULE_WORK_START": "09:00",
+    "SCHEDULE_WORK_END": "17:00",
+    "SCHEDULE_DAYS": "1-5",
+    "SCHEDULE_MAX_RANGE_DAYS": "62"
   },
 
   "observability": { "enabled": true }

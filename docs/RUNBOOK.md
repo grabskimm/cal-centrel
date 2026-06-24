@@ -78,6 +78,23 @@ private host still requires `?token=` and that `/raw/*` and `/run` return 404 on
 the public host. ⚠️ Remember this endpoint publicly reveals your busy/free
 windows (anonymized, but visible); keep it off unless you want that.
 
+### Web scheduling (consume availability in a webpage)
+
+The same public host also serves CORS-enabled JSON for "pick a time" UIs:
+`GET /freebusy.json` (anonymized busy blocks) and `GET /slots.json?…` (computed
+free slots, params in [worker/README.md](../worker/README.md#web-scheduling-endpoints-on-the-public-host)),
+with a demo page at `/`. Validation:
+
+```bash
+curl -s 'https://availability.example.com/freebusy.json' | head -c 200
+curl -s 'https://availability.example.com/slots.json?duration=30&tz=America/New_York' | python -m json.tool | head
+```
+
+Confirm `/slots.json` honours `tz`/`duration`/`workStart`/`workEnd`/`days`, that
+slot times are correct across a DST boundary, and that busy windows are excluded.
+It is read-only: selecting a slot in the demo only emits an event for your
+booking flow to handle — AvailCal never writes to a calendar.
+
 ## One-time setup — Azure (alternative)
 
 ### 1. Deploy infrastructure

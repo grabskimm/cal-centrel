@@ -104,3 +104,25 @@ def test_public_uid_independent_of_source():
     b = BusyInterval(_utc(9), _utc(10), "Perso")
     # Same time, different source -> identical public UID (no source in it).
     assert _public_uid(a) == _public_uid(b)
+
+
+def test_public_freebusy_json_is_anonymized_array():
+    import json as _json
+
+    from availcal.emit import emit_public_freebusy_json
+
+    ivs = [
+        BusyInterval(_utc(9), _utc(11), "Work"),
+        BusyInterval(_utc(10), _utc(12), "iCloud"),
+        BusyInterval(_utc(14), _utc(15), "Perso"),
+    ]
+    data = _json.loads(emit_public_freebusy_json(ivs))
+    # Bare array of {start,end}; cross-source overlap unioned to 9-12 + 14-15.
+    assert data == [
+        {"start": "2026-06-24T09:00:00Z", "end": "2026-06-24T12:00:00Z"},
+        {"start": "2026-06-24T14:00:00Z", "end": "2026-06-24T15:00:00Z"},
+    ]
+    # No labels leak.
+    raw = emit_public_freebusy_json(ivs).decode()
+    for leak in ("Work", "iCloud", "Perso", "source"):
+        assert leak not in raw

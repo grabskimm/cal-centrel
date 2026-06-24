@@ -147,6 +147,9 @@ custom domain, or the `*.workers.dev` host) — see [docs/SUBSCRIBE.md](docs/SUB
   (`public/availability.ics`) unions all sources into bare `Busy` blocks — no
   labels, no source count — for a token-free host like `availability.example.com`.
   Off by default; see [worker/README.md](worker/README.md#public-anonymized-feed-optional).
+- **Web scheduling endpoints**: on the public host, `GET /freebusy.json` and a
+  computed `GET /slots.json` (CORS-enabled) let a webpage render bookable free
+  slots; a demo page is served at `/`. Read-only — booking is wired by your page.
 
 ## Known, accepted properties
 

@@ -26,6 +26,8 @@ log = logging.getLogger("availcal.storage")
 MERGED_OBJECT = "merged/availability.ics"
 # Fully-anonymized public feed (no source labels); served without a token.
 PUBLIC_OBJECT = "public/availability.ics"
+# Same anonymized data as JSON, for webpage fetch()/scheduling.
+PUBLIC_FREEBUSY_OBJECT = "public/freebusy.json"
 RAW_PREFIX = "raw/"
 
 

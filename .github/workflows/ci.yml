@@ -56,6 +56,9 @@ jobs:
       - name: Typecheck Worker
         run: npm run typecheck
 
+      - name: Unit-test slot computation
+        run: npm test
+
   docker-build:
     runs-on: ubuntu-latest
     needs: lint-test

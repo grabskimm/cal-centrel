@@ -14,6 +14,7 @@ prefers separate toggleable calendars; they still never carry event content.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import defaultdict
 
 import icalendar
@@ -92,6 +93,26 @@ def emit_public_ics(intervals: list[BusyInterval], *, name: str = "Availability"
         ev.add("X-MICROSOFT-CDO-BUSYSTATUS", "BUSY")
         cal.add_component(ev)
     return cal.to_ical()
+
+
+def emit_public_freebusy_json(intervals: list[BusyInterval]) -> bytes:
+    """Emit the anonymized public free/busy as JSON for web/scheduling use.
+
+    Same anonymization as the public ICS — sources unioned via
+    ``flatten_across_sources`` into non-overlapping busy blocks, no labels — but
+    in a shape a webpage can ``fetch()`` directly: a bare array of
+    ``{"start","end"}`` UTC-ISO objects. The Worker serves this with CORS and
+    derives bookable free slots from it.
+    """
+    flat = sorted(flatten_across_sources(intervals), key=lambda i: (i.start, i.end))
+    data = [
+        {
+            "start": iv.start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": iv.end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        for iv in flat
+    ]
+    return json.dumps(data, separators=(",", ":")).encode("utf-8")
 
 
 def emit_per_source(intervals: list[BusyInterval]) -> dict[str, bytes]:

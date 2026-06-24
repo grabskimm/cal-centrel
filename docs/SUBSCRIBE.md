@@ -23,6 +23,16 @@ Enable it via the Worker (see
 [worker/README.md](../worker/README.md#public-anonymized-feed-optional)); it is
 **off by default**.
 
+### Embedding availability in a webpage (scheduling)
+
+For a "pick a time" UI rather than a calendar subscription, the public host also
+serves JSON with CORS: `GET /freebusy.json` (anonymized busy blocks) and
+`GET /slots.json?duration=30&tz=America/New_York&workStart=09:00&workEnd=17:00`
+(computed bookable free slots). A copy-pasteable demo page lives at `/` on the
+public host. This stays read-only — your page wires the chosen slot into its own
+booking flow. Full param reference:
+[worker/README.md](../worker/README.md#web-scheduling-endpoints-on-the-public-host).
+
 > The merged feed is **self-describing**: each block's **title is its source's
 > one word** (e.g. `Work`, `Perso`, `iCloud`), and `CATEGORIES` carries the same
 > label so capable clients can color/filter by source — all within this single

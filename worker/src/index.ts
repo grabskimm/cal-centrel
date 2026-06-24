@@ -12,10 +12,17 @@
  *  3. Accept device-agent uploads: PUT /raw/<source>.json with a Bearer token,
  *     written to R2 via the native binding.
  *
+ * On the PUBLIC host it also exposes a token-free, CORS-enabled scheduling
+ * surface for webpages: /freebusy.json (anonymized busy), /slots.json (computed
+ * bookable free slots), and a demo page at /.
+ *
  * The Container computes + writes to R2 with a scoped R2 token (boto3); the
  * Worker serves + accepts uploads via its R2 binding. Both touch one bucket.
  */
 import { Container, getContainer } from '@cloudflare/containers';
+
+import { DEMO_HTML } from './demo';
+import { type Busy, computeSlots, parseDays } from './slots';
 
 export interface Env {
   // Durable Object namespace backing the merge Container.
@@ -43,12 +50,29 @@ export interface Env {
   AVAILCAL_INCLUDE_TENTATIVE: string;
   // "true" makes the merge job also write the anonymized public feed to R2.
   AVAILCAL_EMIT_PUBLIC: string;
+
+  // --- public scheduling defaults (optional; overridable per request) ---
+  SCHEDULE_SLOT_MINUTES?: string; // default slot length (min)
+  SCHEDULE_WORK_START?: string; // default working hours start HH:MM
+  SCHEDULE_WORK_END?: string; // default working hours end HH:MM
+  SCHEDULE_DAYS?: string; // default allowed weekdays, e.g. "1-5"
+  SCHEDULE_MAX_RANGE_DAYS?: string; // clamp the requested date range
 }
 
 const MERGED_KEY = 'merged/availability.ics';
 const PUBLIC_KEY = 'public/availability.ics';
+const PUBLIC_FREEBUSY_KEY = 'public/freebusy.json';
 const RAW_ICS_RE = /^\/raw\/[A-Za-z0-9_]+\.ics$/;
 const RAW_JSON_RE = /^\/raw\/[A-Za-z0-9_]+\.json$/;
+
+const CORS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Max-Age': '86400',
+};
+
+const DAY_MS = 86_400_000;
 
 /**
  * The merge Container. It runs the Python HTTP server (image default CMD); the
@@ -121,14 +145,25 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // --- PUBLIC host: serve ONLY the anonymized feed, no token, nothing else ---
-    // Everything sensitive (token feed, overlays, uploads, /run) is unreachable
-    // here, so the public hostname can never expose labels or accept writes.
+    // --- PUBLIC host: token-free, read-only scheduling surface ---
+    // Only anonymized reads are reachable here; the token feed, overlays,
+    // uploads, and /run are all unreachable, so the public hostname can never
+    // expose labels or accept writes.
     if (env.PUBLIC_FEED_HOST && url.hostname === env.PUBLIC_FEED_HOST) {
-      if (request.method === 'GET' && (path === '/' || path === '/availability.ics')) {
-        return serveObject(env, PUBLIC_KEY);
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+      if (request.method === 'GET') {
+        if (path === '/') {
+          return new Response(DEMO_HTML, {
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+          });
+        }
+        if (path === '/availability.ics') return serveObject(env, PUBLIC_KEY);
+        if (path === '/freebusy.json') {
+          return serveObject(env, PUBLIC_FREEBUSY_KEY, 'application/json; charset=utf-8', CORS);
+        }
+        if (path === '/slots.json') return handleSlots(url, env);
       }
-      return new Response('not found', { status: 404 });
+      return new Response('not found', { status: 404, headers: CORS });
     }
 
     // --- serve the merged feed ---
@@ -175,15 +210,89 @@ export default {
   },
 };
 
-async function serveObject(env: Env, key: string): Promise<Response> {
+async function serveObject(
+  env: Env,
+  key: string,
+  contentType = 'text/calendar; charset=utf-8',
+  extra: Record<string, string> = {},
+): Promise<Response> {
   const obj = await env.AVAILCAL_BUCKET.get(key);
-  if (!obj) return new Response('not found', { status: 404 });
+  if (!obj) return new Response('not found', { status: 404, headers: extra });
   return new Response(obj.body, {
     headers: {
-      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Type': contentType,
       // Clients poll hourly; a few minutes of edge cache is plenty.
       'Cache-Control': 'public, max-age=300',
       ETag: obj.httpEtag,
+      ...extra,
     },
   });
+}
+
+function jsonResponse(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS, ...extra },
+  });
+}
+
+function isoDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Compute bookable free slots from the anonymized busy JSON in R2. All inputs
+ * are query params with env-configurable defaults; the date range is clamped to
+ * SCHEDULE_MAX_RANGE_DAYS to bound work.
+ */
+async function handleSlots(url: URL, env: Env): Promise<Response> {
+  const q = url.searchParams;
+  const nowMs = Date.now();
+  const tz = q.get('tz') || env.AVAILCAL_DEFAULT_TZ || 'America/New_York';
+
+  const fromDate = q.get('from') || isoDate(nowMs);
+  const maxRange = Number(env.SCHEDULE_MAX_RANGE_DAYS ?? '62') || 62;
+  const fromMs = Date.parse(fromDate + 'T00:00:00Z');
+  let toDate = q.get('to') || isoDate(nowMs + 7 * DAY_MS);
+  let toMs = Date.parse(toDate + 'T00:00:00Z');
+  if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
+    if (toMs < fromMs) toMs = fromMs;
+    if (toMs - fromMs > maxRange * DAY_MS) toMs = fromMs + maxRange * DAY_MS;
+    toDate = isoDate(toMs);
+  }
+
+  const num = (v: string | null, d: number) => {
+    const n = Number(v);
+    return v !== null && Number.isFinite(n) && n > 0 ? n : d;
+  };
+  const durationMin = num(q.get('duration'), Number(env.SCHEDULE_SLOT_MINUTES ?? '30') || 30);
+  const stepMin = num(q.get('step'), durationMin);
+  const workStart = q.get('workStart') || env.SCHEDULE_WORK_START || '09:00';
+  const workEnd = q.get('workEnd') || env.SCHEDULE_WORK_END || '17:00';
+
+  const obj = await env.AVAILCAL_BUCKET.get(PUBLIC_FREEBUSY_KEY);
+  const busy: Busy[] = obj ? await obj.json() : [];
+
+  try {
+    const days = parseDays(q.get('days') || env.SCHEDULE_DAYS || '1-5');
+    const slots = computeSlots(busy, {
+      fromDate,
+      toDate,
+      tz,
+      durationMin,
+      stepMin,
+      workStart,
+      workEnd,
+      days,
+      nowMs,
+      maxSlots: 2000,
+    });
+    return jsonResponse(
+      { tz, from: fromDate, to: toDate, durationMin, slots },
+      200,
+      { 'Cache-Control': 'public, max-age=60' },
+    );
+  } catch (e) {
+    return jsonResponse({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
 }
