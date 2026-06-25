@@ -28,10 +28,12 @@ import { calendarHtml } from './calendar-view';
 import { contactEnabled, contactHtml, sendContact, validateMessage } from './contact';
 import { EMBED_JS } from './embed';
 import {
+  bookingNotifyConfig,
   buildGraphEvent,
   createGraphEvent,
   graphToken,
   schedulingEnabled,
+  sendBookingNotification,
   slotIsBookable,
   turnstileEnabled,
   validateBooking,
@@ -93,6 +95,7 @@ export interface Env {
   ZOOM_PERSONAL_LINK?: string; // optional static Zoom URL for the "Zoom" choice
   TURNSTILE_SITE_KEY?: string; // Cloudflare Turnstile public site key (page widget)
   TURNSTILE_SECRET?: string; // Turnstile secret (server verify; a Worker secret)
+  BOOKING_NOTIFY_TO?: string; // owner alert recipient on each booking (defaults to CONTACT_TO / owner)
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
@@ -356,9 +359,18 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
         env, token, buildGraphEvent(v.booking, { zoomLink: env.ZOOM_PERSONAL_LINK }),
       );
       if (!created.ok) return jsonResponse({ error: created.error }, 502);
-      // Push a sync so the just-booked slot drops out of availability promptly
-      // (background — don't block the booker's confirmation on the merge run).
+      // Push a sync so the just-booked slot drops out of availability promptly,
+      // and email the owner an alert — both in the background so the booker's
+      // confirmation isn't blocked on them.
       ctx.waitUntil(triggerMerge(env).catch(() => {}));
+      const notify = bookingNotifyConfig(env);
+      if (notify) {
+        const ntz = env.SCHEDULE_WORK_TZ || env.AVAILCAL_DEFAULT_TZ || 'UTC';
+        const whenText =
+          new Date(v.booking.start).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: ntz }) +
+          ` ${ntz}`;
+        ctx.waitUntil(sendBookingNotification(notify, v.booking, whenText).catch(() => {}));
+      }
       return jsonResponse({ ok: true }, 200);
     }
     return new Response('not found', { status: 404, headers: CORS });

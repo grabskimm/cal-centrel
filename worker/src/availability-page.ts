@@ -84,7 +84,7 @@ export const SHARED_CSS = `
   /* Two distinct cards side by side. The CALENDAR is the primary card and grows
      to fill the row so all seven weekday columns are roomy; the times list is a
      narrower, fixed column beside it (about half the calendar's width). */
-  .booklayout { display:flex; gap:1rem; align-items:stretch; flex-wrap:wrap; margin-top:1.1rem; }
+  .booklayout { display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; margin-top:1.1rem; }
   .card { border:1px solid var(--line); border-radius:13px; padding:1rem 1.05rem; background:#fcfdff; }
   .calcard { flex:1 1 24rem; min-width:19rem; max-width:36rem; }
   .timecard { flex:0 0 13rem; width:13rem; min-width:0; display:flex; flex-direction:column; }
@@ -154,12 +154,20 @@ export const SHARED_CSS = `
   .msub { margin:0 0 .9rem; color:var(--muted); font-size:.9rem; }
   .mwhen { display:inline-block; margin:0 auto 1.1rem; background:var(--chip); color:var(--chipink);
     font-weight:700; font-size:.9rem; padding:.45rem .9rem; border-radius:99px; }
-  .cal-row { display:flex; flex-direction:column; gap:.55rem; text-align:left; }
-  .cal-row .btn { width:100%; justify-content:flex-start; gap:.75rem; padding:.8rem 1rem; font-weight:700;
+  /* the three calendar options sit in a single equal-width row (icon over label) */
+  .cal-row { display:flex; flex-direction:row; gap:.5rem; text-align:center; }
+  .cal-row .btn { flex:1; min-width:0; flex-direction:column; justify-content:center; align-items:center;
+    gap:.3rem; padding:.7rem .4rem; font-weight:700; font-size:.8rem;
     background:#fff; border:1px solid var(--line); color:var(--ink); box-shadow:0 1px 2px rgba(2,6,23,.04); }
   .cal-row .btn:hover { border-color:var(--brand); background:#fafbff; transform:translateY(-1px);
     box-shadow:0 8px 18px rgba(99,102,241,.15); }
-  .cal-row .btn .ico { display:inline-flex; width:1.3rem; justify-content:center; }
+  .cal-row .btn .ico { display:inline-flex; justify-content:center; }
+  /* editable subject inside the booking modal */
+  .msubj-l { display:block; font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--muted); text-align:left; margin:0 0 .25rem; }
+  .msubj { width:100%; padding:.55rem .7rem; font:inherit; color:var(--ink); border:1px solid var(--line);
+    border-radius:10px; margin:0 0 1rem; }
+  .msubj:focus { outline:none; border-color:var(--brand); }
   .mfoot { color:var(--muted); font-size:.74rem; margin:1.05rem 0 0; }
   @keyframes fade { from{opacity:0} to{opacity:1} }
   @keyframes pop { from{opacity:0; transform:translateY(8px) scale(.98)} to{opacity:1; transform:none} }

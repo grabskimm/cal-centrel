@@ -101,6 +101,8 @@ ${cfg.scheduling?.enabled && cfg.scheduling.turnstileSiteKey
       <h3 id="mtitle">You're all set</h3>
       <p class="msub">Add it to your calendar</p>
       <p class="mwhen" id="mwhen"></p>
+      <label class="msubj-l" for="m-subject">Subject</label>
+      <input class="msubj" id="m-subject" type="text" placeholder="Meeting" />
       <div class="cal-row" id="cal-row"></div>
       <p class="mfoot">Opens in your calendar app — nothing is sent to anyone.</p>
       ${cfg.scheduling?.enabled ? `
@@ -166,6 +168,8 @@ window.addEventListener('unhandledrejection', (e)=> showErr((e && e.reason && e.
 
 buildTzPicker(tzSel, CFG.fallbackTz);
 titleEl.value = CFG.title || 'Meeting';
+// Editing the subject in the modal re-targets the calendar links live.
+if ($('m-subject')) $('m-subject').addEventListener('input', renderCalRow);
 
 const fmtTime = (s, tz) => new Date(s).toLocaleTimeString([], { hour:'numeric', minute:'2-digit', timeZone: tz });
 const fmtDayLabel = (s, tz) => new Date(s).toLocaleDateString([], { weekday:'long', month:'long', day:'numeric', timeZone: tz });
@@ -183,20 +187,27 @@ const ICON_GOOGLE = '<svg viewBox="0 0 24 24" width="18" height="18"><path fill=
 const ICON_OUTLOOK = '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="#0A66C2" d="M14 4.5h6.2c.44 0 .8.36.8.8v13.4c0 .44-.36.8-.8.8H14V4.5z"/><path fill="#0A66C2" opacity=".5" d="M14 7.8l7 4v-.7l-7-4z"/><path fill="#1A73E8" d="M2 6.2 12.5 4.3c.3-.05.5.16.5.46v14.48c0 .3-.2.51-.5.46L2 17.8V6.2z"/><path fill="#fff" d="M7.3 9.1c-1.7 0-2.7 1.3-2.7 3 0 1.7 1 2.95 2.66 2.95 1.7 0 2.7-1.27 2.7-3.02C9.96 10.3 8.98 9.1 7.3 9.1zm-.02 1.3c.83 0 1.3.7 1.3 1.68 0 1-.47 1.68-1.3 1.68-.8 0-1.3-.7-1.3-1.7 0-.97.5-1.66 1.3-1.66z"/></svg>';
 const ICON_ICS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>';
 
+// Build (or rebuild) the three calendar links from the modal's editable subject,
+// so changing the subject updates the Google/Outlook/.ics targets live.
+function renderCalRow() {
+  if (!currentSlot) return;
+  const subj = (($('m-subject') && $('m-subject').value.trim()) || CFG.title || 'Meeting');
+  const cfg = { owner: CFG.owner, title: subj };
+  if (icsUrl) URL.revokeObjectURL(icsUrl);
+  icsUrl = URL.createObjectURL(new Blob([icsContent(currentSlot, cfg)], { type:'text/calendar;charset=utf-8' }));
+  const cr = $('cal-row'); cr.innerHTML='';
+  cr.appendChild(linkBtn('Google', googleCalendarUrl(currentSlot, cfg), { icon: ICON_GOOGLE }));
+  cr.appendChild(linkBtn('Outlook', outlookComposeUrl(currentSlot, cfg, CFG.flavor), { icon: ICON_OUTLOOK }));
+  cr.appendChild(linkBtn('Apple', icsUrl, { download:true, icon: ICON_ICS }));
+}
+
 function openModal(s, tz) {
  try {
   currentSlot = s;
-  const subject = titleEl.value || CFG.title || 'Meeting';
-  const when = fmtDayLabel(s.start, tz) + ' · ' + fmtTime(s.start, tz) + '–' + fmtTime(s.end, tz) + ' (' + tz + ')';
-  const cfg = { owner: CFG.owner, title: subject };
-  if (icsUrl) URL.revokeObjectURL(icsUrl);
-  icsUrl = URL.createObjectURL(new Blob([icsContent(s, cfg)], { type:'text/calendar;charset=utf-8' }));
-
-  $('mwhen').textContent = when;
-  const cr = $('cal-row'); cr.innerHTML='';
-  cr.appendChild(linkBtn('Google Calendar', googleCalendarUrl(s, cfg), { icon: ICON_GOOGLE }));
-  cr.appendChild(linkBtn('Outlook Calendar', outlookComposeUrl(s, cfg, CFG.flavor), { icon: ICON_OUTLOOK }));
-  cr.appendChild(linkBtn('Apple / Download .ics', icsUrl, { download:true, icon: ICON_ICS }));
+  const subject = (titleEl && titleEl.value) || CFG.title || 'Meeting';
+  const ms = $('m-subject'); if (ms) ms.value = subject;
+  $('mwhen').textContent = fmtDayLabel(s.start, tz) + ' · ' + fmtTime(s.start, tz) + '–' + fmtTime(s.end, tz) + ' (' + tz + ')';
+  renderCalRow();
 
   // Force visibility explicitly — don't rely solely on the [hidden] attribute /
   // CSS, which is the kind of thing that can silently no-op in some setups.
@@ -238,7 +249,7 @@ if (CFG.scheduling && CFG.scheduling.enabled) {
         body: JSON.stringify({
           start: currentSlot.start, end: currentSlot.end, email,
           name: ($('r-name').value||'').trim(),
-          subject: (titleEl.value||CFG.title||'Meeting'),
+          subject: (($('m-subject') && $('m-subject').value.trim()) || titleEl.value || CFG.title || 'Meeting'),
           meeting, company: ($('r-company').value||''), turnstile,
         }),
       });
