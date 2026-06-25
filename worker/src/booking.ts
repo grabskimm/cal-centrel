@@ -20,6 +20,13 @@ export interface BookingPageCfg {
   contactHref?: string; // when set, shows a "Contact" link in the top nav
   fallbackTz?: string;
   slotsBase?: string; // origin for /slots.json ('' = same origin)
+  // "Book it for me" path (create the event on the owner's calendar). When
+  // enabled is false the modal only shows the add-to-your-own-calendar links.
+  scheduling?: {
+    enabled: boolean;
+    zoom: boolean; // offer the Zoom option (a personal link is configured)
+    turnstileSiteKey: string; // '' disables the Turnstile widget
+  };
 }
 
 export function bookingHtml(cfg: BookingPageCfg): string {
@@ -31,7 +38,26 @@ export function bookingHtml(cfg: BookingPageCfg): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>Book a time</title>
-<style>${SHARED_CSS}</style>
+<style>${SHARED_CSS}
+  .req { margin-top:1rem; padding-top:1rem; border-top:1px solid var(--line); text-align:left; }
+  .req h4 { margin:0 0 .2rem; font-size:.95rem; }
+  .req .rsub { margin:0 0 .7rem; color:var(--muted); font-size:.82rem; }
+  .req label { display:block; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:.5rem 0 .2rem; }
+  .req input[type=text], .req input[type=email] { width:100%; padding:.6rem .7rem; font:inherit; color:var(--ink); border:1px solid var(--line); border-radius:10px; }
+  .req input:focus { outline:none; border-color:var(--brand); }
+  .req .mtg { display:flex; gap:.8rem; flex-wrap:wrap; margin-top:.3rem; }
+  .req .mtg label { display:inline-flex; align-items:center; gap:.35rem; text-transform:none; letter-spacing:0; font-weight:500; font-size:.85rem; color:var(--ink); margin:0; }
+  .req .hp { position:absolute; left:-9999px; }
+  .req .rstatus { font-size:.83rem; margin:.5rem 0 0; }
+  .req .rstatus.ok { color:var(--ok); font-weight:700; }
+  .req .rstatus.err { color:#dc2626; font-weight:700; }
+  .req .cf-turnstile { margin:.6rem 0; }
+  #confirmed .okmark { color:#16a34a; }
+  #confirmed h3 { margin:.2rem 0 .1rem; }
+</style>
+${cfg.scheduling?.enabled && cfg.scheduling.turnstileSiteKey
+  ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>'
+  : ''}
 </head>
 <body>
   <header class="hero">
@@ -68,6 +94,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
   <div id="modal" class="modal" hidden>
     <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mtitle">
       <button class="x" id="x" aria-label="Close">×</button>
+      <div id="book-body">
       <div class="mhead" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16" rx="2.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/><path d="m9 14 2 2 4-4"/></svg>
       </div>
@@ -76,6 +103,38 @@ export function bookingHtml(cfg: BookingPageCfg): string {
       <p class="mwhen" id="mwhen"></p>
       <div class="cal-row" id="cal-row"></div>
       <p class="mfoot">Opens in your calendar app — nothing is sent to anyone.</p>
+      ${cfg.scheduling?.enabled ? `
+      <div class="req" id="req">
+        <h4>Or have me put it on the calendar</h4>
+        <p class="rsub">I'll create the event and email you an invite.</p>
+        <label for="r-email">Your email</label>
+        <input type="email" id="r-email" autocomplete="email" placeholder="you@example.com" />
+        <label for="r-name">Your name (optional)</label>
+        <input type="text" id="r-name" autocomplete="name" />
+        <label>Meeting</label>
+        <div class="mtg">
+          <label><input type="radio" name="mtg" value="none" checked /> No link</label>
+          <label><input type="radio" name="mtg" value="teams" /> Teams</label>
+          ${cfg.scheduling.zoom ? '<label><input type="radio" name="mtg" value="zoom" /> Zoom</label>' : ''}
+        </div>
+        <input class="hp" type="text" id="r-company" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        ${cfg.scheduling.turnstileSiteKey
+          ? `<div class="cf-turnstile" data-sitekey="${escapeHtml(cfg.scheduling.turnstileSiteKey)}"></div>`
+          : ''}
+        <button class="btn btn-primary full" id="r-send" type="button">Send booking request</button>
+        <p class="rstatus" id="r-status"></p>
+      </div>` : ''}
+      </div>
+      ${cfg.scheduling?.enabled ? `
+      <div id="confirmed" hidden>
+        <div class="mhead okmark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>
+        </div>
+        <h3>You're booked!</h3>
+        <p class="mwhen" id="c-when"></p>
+        <p class="msub">We emailed an invite to <b id="c-email"></b>.</p>
+        <button class="btn btn-primary full" id="c-done" type="button">Done</button>
+      </div>` : ''}
     </div>
   </div>
 
@@ -97,7 +156,7 @@ const icsContent = ${icsContent.toString()};
 
 const $ = (id) => document.getElementById(id);
 const tzSel=$('tz'), titleEl=$('title'), statusEl=$('status'), modal=$('modal');
-let cache=[], icsUrl=null;
+let cache=[], icsUrl=null, currentSlot=null;
 
 // Surface any uncaught error on the page itself, so a silent failure becomes
 // visible ("nothing happens" -> a readable message) without needing DevTools.
@@ -126,6 +185,7 @@ const ICON_ICS = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" st
 
 function openModal(s, tz) {
  try {
+  currentSlot = s;
   const subject = titleEl.value || CFG.title || 'Meeting';
   const when = fmtDayLabel(s.start, tz) + ' · ' + fmtTime(s.start, tz) + '–' + fmtTime(s.end, tz) + ' (' + tz + ')';
   const cfg = { owner: CFG.owner, title: subject };
@@ -143,11 +203,61 @@ function openModal(s, tz) {
   modal.hidden = false;
   modal.style.display = 'flex';
   statusEl.textContent = '';
+  // Reset the "book it for me" form + a fresh Turnstile token for each slot.
+  if (CFG.scheduling && CFG.scheduling.enabled) {
+    const rs = $('r-status'); if (rs) rs.textContent = '';
+    const bb = $('book-body'), cf = $('confirmed'); if (bb) bb.hidden = false; if (cf) cf.hidden = true;
+    if (window.turnstile && CFG.scheduling.turnstileSiteKey) { try { window.turnstile.reset(); } catch(e){} }
+  }
  } catch (err) { showErr('Could not open booking options: ' + (err && err.message ? err.message : err)); }
 }
 function closeModal(){ modal.hidden = true; modal.style.display = 'none'; }
 $('x').addEventListener('click', closeModal);
 modal.addEventListener('click', (e)=>{ if (e.target===modal) closeModal(); });
+
+// "Book it for me" → POST /book (the server creates the event + emails the invite).
+if (CFG.scheduling && CFG.scheduling.enabled) {
+  const sendBtn = $('r-send');
+  sendBtn.addEventListener('click', async ()=>{
+    const st = $('r-status');
+    if (!currentSlot) { st.className='rstatus err'; st.textContent='Pick a time first.'; return; }
+    const email = ($('r-email').value||'').trim();
+    if (!email) { st.className='rstatus err'; st.textContent='Please enter your email.'; return; }
+    const meetingEl = document.querySelector('input[name=mtg]:checked');
+    const meeting = meetingEl ? meetingEl.value : 'none';
+    let turnstile = '';
+    if (CFG.scheduling.turnstileSiteKey) {
+      const tIn = document.querySelector('[name=cf-turnstile-response]');
+      turnstile = (tIn && tIn.value) || '';
+      if (!turnstile) { st.className='rstatus err'; st.textContent='Please complete the verification.'; return; }
+    }
+    sendBtn.disabled=true; st.className='rstatus'; st.textContent='Sending…';
+    try {
+      const res = await fetch((CFG.slotsBase||'') + '/book', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          start: currentSlot.start, end: currentSlot.end, email,
+          name: ($('r-name').value||'').trim(),
+          subject: (titleEl.value||CFG.title||'Meeting'),
+          meeting, company: ($('r-company').value||''), turnstile,
+        }),
+      });
+      const data = await res.json().catch(()=>({}));
+      if (res.ok) {
+        // Swap the modal to a confirmation screen.
+        $('c-when').textContent = $('mwhen').textContent;
+        $('c-email').textContent = email;
+        $('book-body').hidden = true;
+        $('confirmed').hidden = false;
+      } else {
+        st.className='rstatus err'; st.textContent=(data && data.error) || 'Could not book. Try again.';
+        if (window.turnstile) { try { window.turnstile.reset(); } catch(e){} }
+      }
+    } catch (e) { st.className='rstatus err'; st.textContent='Network error — please try again.'; }
+    finally { sendBtn.disabled=false; }
+  });
+  const done = $('c-done'); if (done) done.addEventListener('click', closeModal);
+}
 document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') closeModal(); });
 
 // If we arrived from the home page with ?from=YYYY-MM-DD, preselect that date so
