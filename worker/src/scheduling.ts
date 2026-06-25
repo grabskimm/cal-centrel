@@ -21,6 +21,53 @@ export interface SchedulingEnv {
   TURNSTILE_SECRET?: string; // Cloudflare Turnstile secret (bot protection)
   ZOOM_PERSONAL_LINK?: string; // optional static Zoom URL for the "Zoom" option
   BOOKING_TITLE?: string; // default event subject
+  // Owner notification on each booking (reuses the Resend/contact settings).
+  CONTACT_API_KEY?: string;
+  CONTACT_FROM?: string;
+  CONTACT_PROVIDER?: string; // 'resend' (default) | 'sendgrid'
+  CONTACT_TO?: string;
+  BOOKING_OWNER_EMAIL?: string;
+  BOOKING_NOTIFY_TO?: string; // explicit recipient; falls back to CONTACT_TO / owner
+}
+
+export interface NotifyConfig { apiKey: string; from: string; to: string; provider: string; }
+
+/** Where to email the owner when a booking is created, or null if not configured. */
+export function bookingNotifyConfig(env: SchedulingEnv): NotifyConfig | null {
+  const apiKey = (env.CONTACT_API_KEY ?? '').trim();
+  const from = (env.CONTACT_FROM ?? '').trim();
+  const to = (env.BOOKING_NOTIFY_TO ?? env.CONTACT_TO ?? env.BOOKING_OWNER_EMAIL ?? '').trim();
+  if (!apiKey || !from || !to) return null;
+  return { apiKey, from, to, provider: (env.CONTACT_PROVIDER ?? 'resend').trim().toLowerCase() };
+}
+
+/** Best-effort "you have a new booking" email to the owner (via Resend/SendGrid). */
+export async function sendBookingNotification(cfg: NotifyConfig, booking: BookingRequest, whenText: string): Promise<void> {
+  const mtg = booking.meeting === 'teams' ? ' · Teams' : booking.meeting === 'zoom' ? ' · Zoom' : '';
+  const who = booking.name ? `${booking.name} <${booking.email}>` : booking.email;
+  const subject = `New booking: ${booking.subject} — ${whenText}`;
+  const text = `A new event was created on your calendar.\n\nWhen: ${whenText}${mtg}\nWith: ${who}\nSubject: ${booking.subject}`;
+  try {
+    if (cfg.provider === 'sendgrid') {
+      await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personalizations: [{ to: [{ email: cfg.to }] }],
+          from: { email: cfg.from }, reply_to: { email: booking.email },
+          subject, content: [{ type: 'text/plain', value: text }],
+        }),
+      });
+      return;
+    }
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: cfg.from, to: [cfg.to], subject, text, reply_to: booking.email }),
+    });
+  } catch (e) {
+    console.warn(`booking notify failed: ${e instanceof Error ? e.message : e}`);
+  }
 }
 
 /** True when the Graph write path is fully configured. */

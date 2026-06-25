@@ -39,10 +39,12 @@ describe('bookingHtml', () => {
   it('has a launch modal with calendar options only (no email request)', () => {
     expect(html).toContain('class="modal"');
     expect(html).toContain('cal-row');
-    expect(html).toContain("'Google Calendar'");
-    expect(html).toContain("'Outlook Calendar'");
-    expect(html).toContain('Download .ics');
+    expect(html).toContain("'Google'");
+    expect(html).toContain("'Outlook'");
+    expect(html).toContain("'Apple'");
     expect(html).toContain('createObjectURL');
+    // Subject is editable from inside the modal.
+    expect(html).toContain('id="m-subject"');
     // Email-request path is gone.
     expect(html).not.toContain('email-row');
     expect(html).not.toContain("'Gmail'");
