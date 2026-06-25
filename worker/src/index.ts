@@ -24,7 +24,20 @@ import { Container, getContainer } from '@cloudflare/containers';
 import { verifyAccessJwt } from './access';
 import { availabilityHtml } from './availability-page';
 import { type BookingPageCfg, bookingHtml } from './booking';
+import {
+  type AiBinding,
+  callModel,
+  chatEnabled,
+  type ChatMode,
+  chatSlotParams,
+  findSlots,
+  formatProposedReply,
+  parseAction,
+  rankSlots,
+  systemPrompt,
+} from './chat';
 import { calendarHtml } from './calendar-view';
+import { type ChatPageCfg, chatPageHtml } from './chat-page';
 import { contactEnabled, contactHtml, sendContact, validateMessage } from './contact';
 import { EMBED_JS } from './embed';
 import {
@@ -40,7 +53,7 @@ import {
   verifyTurnstile,
   zoomEnabled,
 } from './scheduling';
-import { type Busy, computeSlots, parseDays } from './slots';
+import { type Busy, type Slot, computeSlots, parseDays } from './slots';
 
 export interface Env {
   // Durable Object namespace backing the merge Container.
@@ -97,6 +110,12 @@ export interface Env {
   TURNSTILE_SITE_KEY?: string; // Cloudflare Turnstile public site key (page widget)
   TURNSTILE_SECRET?: string; // Turnstile secret (server verify; a Worker secret)
   BOOKING_NOTIFY_TO?: string; // owner alert recipient on each booking (defaults to CONTACT_TO / owner)
+
+  // --- natural-language chat booker (/chat, Workers AI) ---
+  AI?: AiBinding; // Workers AI binding; absent => chat disabled
+  CHAT_MODEL?: string; // override the default chat model
+  CHAT_HOST?: string; // optional dedicated host (e.g. chat.example.com) that serves the chat at /
+  OWNER_BIO?: string; // short bio used by the assistant-mode chat on CHAT_HOST to answer questions about the owner
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
@@ -220,6 +239,19 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
   // Treat HEAD like GET for routing (clients probe feeds with HEAD).
   const isRead = request.method === 'GET' || request.method === 'HEAD';
 
+  // --- dedicated chat host (e.g. chat.example.com): a standalone, embeddable
+  //     chat surface that reuses the same /chat backend. Serves the chat UI at /
+  //     and /chat, plus POST /chat. ---
+  if (env.CHAT_HOST && url.hostname === env.CHAT_HOST) {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    if (!chatEnabled(env) || !schedulingEnabled(env)) {
+      return new Response('Chat is not configured.', { status: 404, headers: CORS });
+    }
+    if (request.method === 'POST' && path === '/chat') return handleChatRequest(env, ctx, request, 'assistant');
+    if (isRead && (path === '/' || path === '/chat')) return serveChatPage(env, 'assistant');
+    return new Response('not found', { status: 404, headers: CORS });
+  }
+
   // --- PUBLIC host: token-free, read-only scheduling surface ---
   // Only anonymized reads are reachable here; the token feed, overlays,
   // uploads, and /run are all unreachable, so the public hostname can never
@@ -290,6 +322,9 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
         return new Response(bookingHtml(cfg), {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
         });
+      }
+      if (path === '/chat' && chatEnabled(env) && schedulingEnabled(env)) {
+        return serveChatPage(env, 'schedule');
       }
     }
     // Contact relay: accept the note and email it to the owner's mailbox.
@@ -376,6 +411,14 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
         ctx.waitUntil(sendBookingNotification(notify, v.booking, whenText).catch(() => {}));
       }
       return jsonResponse({ ok: true }, 200);
+    }
+    // Natural-language chat booker: the model parses intent; the Worker owns the
+    // slots + booking (re-validated), so a small model can't book a bad time.
+    if (request.method === 'POST' && path === '/chat') {
+      if (!chatEnabled(env) || !schedulingEnabled(env)) {
+        return jsonResponse({ error: 'Chat booking is not configured.' }, 503);
+      }
+      return handleChatRequest(env, ctx, request, 'schedule');
     }
     return new Response('not found', { status: 404, headers: CORS });
   }
@@ -515,6 +558,129 @@ function esc(s: string): string {
 const BUILD_TAG = 'b21 · 2026-06-24 outlook-app+holddrag';
 
 /** Build the © footer HTML from env (empty when no owner configured). */
+/**
+ * Serve the chat UI. The entry point sets the persona:
+ *  - 'schedule'  (public host /chat) — scheduling-focused greeting/heading.
+ *  - 'assistant' (dedicated CHAT_HOST) — a personal assistant that also answers
+ *    questions about the owner, then helps book.
+ */
+function serveChatPage(env: Env, mode: ChatMode): Response {
+  const name = (env.OWNER_NAME ?? '').trim();
+  const base = env.PUBLIC_FEED_HOST ? `https://${env.PUBLIC_FEED_HOST}` : '';
+  const assistant = mode === 'assistant';
+  const heading = assistant
+    ? (name ? `Chat with ${name}'s assistant` : 'Chat with my assistant')
+    : (name ? `Chat to book with ${name}` : 'Chat to book a time');
+  const greeting = assistant
+    ? `Hi! I'm ${name || 'the owner'}'s assistant. Ask me about ${name || 'them'} — what they work on, how to get in touch — or tell me when you'd like to meet and I'll find a time.`
+    : `Hi! Tell me roughly when you'd like to meet${name ? ` ${name}` : ''} — e.g. "30 minutes next week, afternoons" — and I'll find open times.`;
+  const cfg: ChatPageCfg = {
+    heading,
+    homeHref: `${base}/`,
+    bookHref: `${base}/book`,
+    footer: buildFooter(env),
+    turnstileSiteKey: turnstileEnabled(env) ? (env.TURNSTILE_SITE_KEY ?? '') : '',
+    greeting,
+  };
+  return new Response(chatPageHtml(cfg), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
+/** Parse + Turnstile-verify a POST /chat, then run one turn. */
+async function handleChatRequest(env: Env, ctx: ExecutionContext, request: Request, mode: ChatMode): Promise<Response> {
+  let payload: Record<string, unknown>;
+  try { payload = (await request.json()) as Record<string, unknown>; }
+  catch { return jsonResponse({ error: 'Invalid request.' }, 400); }
+  if (turnstileEnabled(env)) {
+    const ok = await verifyTurnstile(env.TURNSTILE_SECRET ?? '', String(payload.turnstile ?? ''), request.headers.get('CF-Connecting-IP'));
+    if (!ok) return jsonResponse({ error: 'Verification failed — please retry.' }, 400);
+  }
+  return handleChat(env, ctx, payload, mode);
+}
+
+/**
+ * One turn of the chat booker. The model output is reduced to a structured
+ * action; the Worker computes/validates slots and books — so the model can't
+ * fabricate a time or skip the slot re-check.
+ */
+async function handleChat(env: Env, ctx: ExecutionContext, payload: Record<string, unknown>, mode: ChatMode): Promise<Response> {
+  const history = Array.isArray(payload.messages)
+    ? (payload.messages as Array<Record<string, unknown>>)
+        .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: String(m.content).slice(0, 1000) }))
+        .slice(-12)
+    : [];
+  if (!history.length) return jsonResponse({ error: 'No message.' }, 400);
+  const proposed: Slot[] = Array.isArray(payload.proposed)
+    ? (payload.proposed as Array<Record<string, unknown>>)
+        .filter((s) => s && typeof s.start === 'string' && typeof s.end === 'string')
+        .map((s) => ({ start: String(s.start), end: String(s.end) }))
+        .slice(0, 10)
+    : [];
+
+  const tz = env.SCHEDULE_WORK_TZ || env.AVAILCAL_DEFAULT_TZ || 'America/New_York';
+  const durationMin = Number(env.SCHEDULE_SLOT_MINUTES ?? '30') || 30;
+  const meetings = ['teams', ...(zoomEnabled(env) ? ['zoom'] : []), ...((env.BOOKING_PHONE ?? '').trim() ? ['phone'] : []), 'none'];
+  const today = isoDate(Date.now());
+  const sys = systemPrompt({ todayIso: today, ownerName: (env.OWNER_NAME ?? 'me').trim() || 'me', tz, durationMin, proposed, meetings, mode, bio: env.OWNER_BIO });
+
+  let action;
+  try {
+    action = parseAction(await callModel(env, sys, history));
+  } catch {
+    return jsonResponse({ reply: 'Sorry — I had trouble there. Could you rephrase?' }, 200);
+  }
+
+  const obj = await env.AVAILCAL_BUCKET.get(PUBLIC_FREEBUSY_KEY);
+  const busy: Busy[] = obj ? await obj.json() : [];
+  const base = {
+    tz, durationMin,
+    workStart: env.SCHEDULE_WORK_START || '08:00', workEnd: env.SCHEDULE_WORK_END || '18:00',
+    days: parseDays(env.SCHEDULE_DAYS || '1-5'), nowMs: Date.now(),
+  };
+
+  if (action.kind === 'propose') {
+    const from = action.fromDate && /^\d{4}-\d\d-\d\d$/.test(action.fromDate) ? action.fromDate : today;
+    const maxRange = Number(env.SCHEDULE_MAX_RANGE_DAYS ?? '62') || 62;
+    const fromMs = Date.parse(from + 'T00:00:00Z');
+    let to = action.toDate && /^\d{4}-\d\d-\d\d$/.test(action.toDate) ? action.toDate : isoDate(fromMs + 14 * DAY_MS);
+    if (Date.parse(to + 'T00:00:00Z') - fromMs > maxRange * DAY_MS) to = isoDate(fromMs + maxRange * DAY_MS);
+    const dur = action.durationMin && action.durationMin >= 5 && action.durationMin <= 480 ? action.durationMin : durationMin;
+    let ranked: Slot[] = [];
+    try {
+      ranked = rankSlots(findSlots(busy, chatSlotParams({ ...base, durationMin: dur }, from, to)), { partOfDay: action.partOfDay, days: action.days }, tz, 3);
+    } catch { ranked = []; }
+    return jsonResponse({ reply: formatProposedReply(action.reply ?? '', ranked, tz), proposed: ranked }, 200);
+  }
+
+  if (action.kind === 'book') {
+    const pick = action.pickIndex && action.pickIndex >= 1 && action.pickIndex <= proposed.length ? proposed[action.pickIndex - 1] : null;
+    if (!pick) return jsonResponse({ reply: action.reply || 'Which time works? Tell me the number from the list.', proposed }, 200);
+    if (!action.email) return jsonResponse({ reply: "Great — what's the best email for the invite?", proposed }, 200);
+    const day = isoDate(Date.parse(pick.start));
+    let okSlot = false;
+    try { okSlot = slotIsBookable(busy, chatSlotParams(base, day, day), pick.start, pick.end); } catch { okSlot = false; }
+    if (!okSlot) return jsonResponse({ reply: 'Ah — that time just filled up. Want a few more options?', proposed: [] }, 200);
+    const v = validateBooking(
+      { start: pick.start, end: pick.end, email: action.email, name: action.name ?? '', subject: env.BOOKING_TITLE ?? 'Meeting', meeting: action.meeting ?? 'teams' },
+      { defaultSubject: env.BOOKING_TITLE ?? 'Meeting', zoomAvailable: zoomEnabled(env), phoneAvailable: Boolean((env.BOOKING_PHONE ?? '').trim()), nowMs: Date.now() },
+    );
+    if (!v.ok) return jsonResponse({ reply: `Hmm: ${v.error}`, proposed }, 200);
+    const token = await graphToken(env);
+    if (!token) return jsonResponse({ reply: "I couldn't reach the calendar just now — please try again in a moment." }, 200);
+    const created = await createGraphEvent(env, token, buildGraphEvent(v.booking, { zoomLink: env.ZOOM_PERSONAL_LINK, ownerPhone: env.BOOKING_PHONE }));
+    if (!created.ok) return jsonResponse({ reply: 'Something went wrong creating the event — please try the booking page.' }, 200);
+    ctx.waitUntil(triggerMerge(env).catch(() => {}));
+    const whenText = new Date(pick.start).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: tz });
+    const notify = bookingNotifyConfig(env);
+    if (notify) ctx.waitUntil(sendBookingNotification(notify, v.booking, `${whenText} ${tz}`).catch(() => {}));
+    return jsonResponse({ reply: `Done! You're booked for ${whenText} (${tz}). I've sent an invite to ${action.email}. 🎉`, booked: true }, 200);
+  }
+
+  return jsonResponse({ reply: action.reply || 'Happy to help you find a time — when works for you?' }, 200);
+}
+
 function buildFooter(env: Env): string {
   const owner = (env.FOOTER_OWNER ?? env.OWNER_NAME ?? '').trim();
   const year = new Date().getUTCFullYear();

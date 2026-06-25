@@ -26,6 +26,11 @@
   // R2 bucket for /raw and /merged objects (create it first; see infra/cloudflare).
   "r2_buckets": [{ "binding": "AVAILCAL_BUCKET", "bucket_name": "availcal" }],
 
+  // Workers AI — powers the natural-language chat booker (/chat). Billed as usage
+  // on the account (free daily allowance). The chat feature stays disabled until
+  // this binding + CHAT_ENABLED are present.
+  "ai": { "binding": "AI" },
+
   // Hourly merge.
   "triggers": { "crons": ["0 * * * *"] },
 
@@ -39,7 +44,10 @@
   // The *.workers.dev URL keeps working alongside custom domains.
   "routes": [
     { "pattern": "availcal.mendelg.tech", "custom_domain": true },
-    { "pattern": "availability.mendelg.tech", "custom_domain": true }
+    { "pattern": "availability.mendelg.tech", "custom_domain": true },
+    // Dedicated, embeddable chat-booker surface (served at / and /chat). Also add
+    // chat.mendelg.tech to the Turnstile widget's allowed hostnames.
+    { "pattern": "chat.mendelg.tech", "custom_domain": true }
   ],
 
   // Non-secret config. Secrets (tokens, feed URLs, R2 creds) are set with
@@ -114,7 +122,18 @@
     "MS_TENANT_ID": "a7c6476e-ba22-49d0-ba37-c2427888403d",
     "MS_CLIENT_ID": "fd69c9ef-59c2-49f2-bfc3-275c07a8ca47",
     "MS_MAILBOX": "mendel@mendelg.tech",
-    "TURNSTILE_SITE_KEY": "0x4AAAAAADq5MvxLosP8lKi5"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAADq5MvxLosP8lKi5",
+
+    // Dedicated chat host (the chat booker is also reachable at
+    // availability.mendelg.tech/chat). Leave empty to disable the standalone host.
+    "CHAT_HOST": "chat.mendelg.tech",
+
+    // On the dedicated CHAT_HOST the chat runs in "assistant" mode: it can answer
+    // questions about you (from this bio) as well as book time. Keep it short —
+    // a few sentences mirroring your site (e.g. mendelg.tech). On the public
+    // availability host the chat stays scheduling-only and ignores this. The
+    // model is told to use ONLY these facts and never invent biographical detail.
+    "OWNER_BIO": "Mendel Grabski is a builder and engineer. He created this self-hosted availability + scheduling system that runs entirely on Cloudflare Workers. Learn more at https://mendelg.tech."
   },
 
   "observability": { "enabled": true }
