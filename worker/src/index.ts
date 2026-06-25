@@ -27,6 +27,17 @@ import { type BookingPageCfg, bookingHtml } from './booking';
 import { calendarHtml } from './calendar-view';
 import { contactEnabled, contactHtml, sendContact, validateMessage } from './contact';
 import { EMBED_JS } from './embed';
+import {
+  buildGraphEvent,
+  createGraphEvent,
+  graphToken,
+  schedulingEnabled,
+  slotIsBookable,
+  turnstileEnabled,
+  validateBooking,
+  verifyTurnstile,
+  zoomEnabled,
+} from './scheduling';
 import { type Busy, computeSlots, parseDays } from './slots';
 
 export interface Env {
@@ -71,6 +82,17 @@ export interface Env {
   BOOKING_OWNER_EMAIL?: string; // invitee on the composed Outlook event
   BOOKING_TITLE?: string; // default event subject
   BOOKING_OUTLOOK_FLAVOR?: string; // 'office' (M365, default) | 'live' (personal)
+
+  // --- "Book it for me" → create the event on the owner's M365 calendar (app-only
+  //     Microsoft Graph). All optional: absent => the feature is disabled and
+  //     /book only serves the add-to-your-own-calendar links. ---
+  MS_TENANT_ID?: string; // Entra tenant id
+  MS_CLIENT_ID?: string; // app registration (client) id
+  MS_CLIENT_SECRET?: string; // app client secret (a Worker secret)
+  MS_MAILBOX?: string; // mailbox to write to (UPN / primary SMTP)
+  ZOOM_PERSONAL_LINK?: string; // optional static Zoom URL for the "Zoom" choice
+  TURNSTILE_SITE_KEY?: string; // Cloudflare Turnstile public site key (page widget)
+  TURNSTILE_SECRET?: string; // Turnstile secret (server verify; a Worker secret)
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
@@ -253,6 +275,11 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
           contactHref: contactAvailable(env) ? '/contact' : undefined,
           fallbackTz: env.CALENDAR_FALLBACK_TZ ?? 'America/Los_Angeles',
           slotsBase: '', // same origin
+          scheduling: {
+            enabled: schedulingEnabled(env),
+            zoom: zoomEnabled(env),
+            turnstileSiteKey: turnstileEnabled(env) ? (env.TURNSTILE_SITE_KEY ?? '') : '',
+          },
         };
         return new Response(bookingHtml(cfg), {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
@@ -277,6 +304,58 @@ async function routeRequest(request: Request, env: Env): Promise<Response> {
       if (!v.ok) return jsonResponse({ error: v.error }, 400);
       const sent = await sendContact(env, v.msg);
       return sent.ok ? jsonResponse({ ok: true }, 200) : jsonResponse({ error: sent.error }, 502);
+    }
+    // "Book it for me": create the requested meeting on the owner's M365 calendar.
+    if (request.method === 'POST' && path === '/book') {
+      if (!schedulingEnabled(env)) return jsonResponse({ error: 'Booking is not configured.' }, 503);
+      let payload: Record<string, unknown>;
+      try {
+        payload = (await request.json()) as Record<string, unknown>;
+      } catch {
+        return jsonResponse({ error: 'Invalid request.' }, 400);
+      }
+      if (typeof payload.company === 'string' && payload.company.trim()) {
+        return jsonResponse({ ok: true }, 200); // honeypot: silently accept + drop
+      }
+      if (turnstileEnabled(env)) {
+        const ok = await verifyTurnstile(
+          env.TURNSTILE_SECRET ?? '', String(payload.turnstile ?? ''), request.headers.get('CF-Connecting-IP'),
+        );
+        if (!ok) return jsonResponse({ error: 'Verification failed — please retry.' }, 400);
+      }
+      const v = validateBooking(payload, {
+        defaultSubject: env.BOOKING_TITLE ?? 'Meeting',
+        zoomAvailable: zoomEnabled(env),
+        nowMs: Date.now(),
+      });
+      if (!v.ok) return jsonResponse({ error: v.error }, 400);
+      // Re-validate the slot server-side (anti double-book / tamper) with the SAME
+      // rules as /slots.json — never trust the client's posted time.
+      const obj = await env.AVAILCAL_BUCKET.get(PUBLIC_FREEBUSY_KEY);
+      const busy: Busy[] = obj ? await obj.json() : [];
+      const day = isoDate(Date.parse(v.booking.start));
+      const slotMin = Number(env.SCHEDULE_SLOT_MINUTES ?? '30') || 30;
+      let bookable = false;
+      try {
+        bookable = slotIsBookable(busy, {
+          fromDate: day, toDate: day,
+          tz: env.SCHEDULE_WORK_TZ || env.AVAILCAL_DEFAULT_TZ || 'America/New_York',
+          durationMin: slotMin, stepMin: slotMin,
+          workStart: env.SCHEDULE_WORK_START || '08:00',
+          workEnd: env.SCHEDULE_WORK_END || '18:00',
+          days: parseDays(env.SCHEDULE_DAYS || '1-5'),
+          nowMs: Date.now(), maxSlots: 2000,
+        }, v.booking.start, v.booking.end);
+      } catch {
+        bookable = false;
+      }
+      if (!bookable) return jsonResponse({ error: 'That time is no longer available.' }, 409);
+      const token = await graphToken(env);
+      if (!token) return jsonResponse({ error: 'Calendar authorization failed.' }, 502);
+      const created = await createGraphEvent(
+        env, token, buildGraphEvent(v.booking, { zoomLink: env.ZOOM_PERSONAL_LINK }),
+      );
+      return created.ok ? jsonResponse({ ok: true }, 200) : jsonResponse({ error: created.error }, 502);
     }
     return new Response('not found', { status: 404, headers: CORS });
   }

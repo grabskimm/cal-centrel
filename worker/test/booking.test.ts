@@ -48,4 +48,40 @@ describe('bookingHtml', () => {
     expect(html).not.toContain("'Gmail'");
     expect(html).not.toContain('const mailtoUrl =');
   });
+
+  it('omits the "book it for me" section unless scheduling is enabled', () => {
+    expect(html).not.toContain('id="req"');
+    expect(html).not.toContain('data-sitekey');
+    expect(html).not.toContain('Send booking request');
+  });
+});
+
+describe('bookingHtml with scheduling enabled', () => {
+  const html = bookingHtml({
+    owner: 'me@corp.com', title: 'Intro call', flavor: 'office',
+    tz: 'America/New_York', durationMin: '30', heading: 'Book with Mendel',
+    fallbackTz: 'America/Los_Angeles', slotsBase: '',
+    scheduling: { enabled: true, zoom: true, turnstileSiteKey: '0xSITEKEY' },
+  });
+
+  it('renders the request form, meeting choices, and Turnstile widget', () => {
+    expect(html).toContain('id="req"');
+    expect(html).toContain('id="r-email"');
+    expect(html).toContain("value=\"teams\"");
+    expect(html).toContain("value=\"zoom\"");
+    expect(html).toContain('data-sitekey="0xSITEKEY"');
+    expect(html).toContain('challenges.cloudflare.com/turnstile');
+    expect(html).toContain("'/book'");
+  });
+
+  it('hides the Zoom choice when no Zoom link is configured', () => {
+    const noZoom = bookingHtml({
+      owner: '', title: 'x', flavor: 'office', tz: 'UTC', durationMin: '30',
+      heading: 'h', slotsBase: '', scheduling: { enabled: true, zoom: false, turnstileSiteKey: '' },
+    });
+    expect(noZoom).toContain('id="req"');
+    expect(noZoom).toContain('value="teams"');
+    expect(noZoom).not.toContain('value="zoom"');
+    expect(noZoom).not.toContain('data-sitekey'); // no widget without a site key
+  });
 });
