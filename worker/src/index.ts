@@ -28,6 +28,7 @@ import {
   type AiBinding,
   callModel,
   chatEnabled,
+  type ChatMode,
   chatSlotParams,
   findSlots,
   formatProposedReply,
@@ -114,6 +115,7 @@ export interface Env {
   AI?: AiBinding; // Workers AI binding; absent => chat disabled
   CHAT_MODEL?: string; // override the default chat model
   CHAT_HOST?: string; // optional dedicated host (e.g. chat.example.com) that serves the chat at /
+  OWNER_BIO?: string; // short bio used by the assistant-mode chat on CHAT_HOST to answer questions about the owner
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
@@ -245,8 +247,8 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
     if (!chatEnabled(env) || !schedulingEnabled(env)) {
       return new Response('Chat is not configured.', { status: 404, headers: CORS });
     }
-    if (request.method === 'POST' && path === '/chat') return handleChatRequest(env, ctx, request);
-    if (isRead && (path === '/' || path === '/chat')) return serveChatPage(env);
+    if (request.method === 'POST' && path === '/chat') return handleChatRequest(env, ctx, request, 'assistant');
+    if (isRead && (path === '/' || path === '/chat')) return serveChatPage(env, 'assistant');
     return new Response('not found', { status: 404, headers: CORS });
   }
 
@@ -322,7 +324,7 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
         });
       }
       if (path === '/chat' && chatEnabled(env) && schedulingEnabled(env)) {
-        return serveChatPage(env);
+        return serveChatPage(env, 'schedule');
       }
     }
     // Contact relay: accept the note and email it to the owner's mailbox.
@@ -416,7 +418,7 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
       if (!chatEnabled(env) || !schedulingEnabled(env)) {
         return jsonResponse({ error: 'Chat booking is not configured.' }, 503);
       }
-      return handleChatRequest(env, ctx, request);
+      return handleChatRequest(env, ctx, request, 'schedule');
     }
     return new Response('not found', { status: 404, headers: CORS });
   }
@@ -556,17 +558,29 @@ function esc(s: string): string {
 const BUILD_TAG = 'b21 · 2026-06-24 outlook-app+holddrag';
 
 /** Build the © footer HTML from env (empty when no owner configured). */
-/** Serve the chat UI (used on the public host /chat and on a dedicated CHAT_HOST). */
-function serveChatPage(env: Env): Response {
+/**
+ * Serve the chat UI. The entry point sets the persona:
+ *  - 'schedule'  (public host /chat) — scheduling-focused greeting/heading.
+ *  - 'assistant' (dedicated CHAT_HOST) — a personal assistant that also answers
+ *    questions about the owner, then helps book.
+ */
+function serveChatPage(env: Env, mode: ChatMode): Response {
   const name = (env.OWNER_NAME ?? '').trim();
   const base = env.PUBLIC_FEED_HOST ? `https://${env.PUBLIC_FEED_HOST}` : '';
+  const assistant = mode === 'assistant';
+  const heading = assistant
+    ? (name ? `Chat with ${name}'s assistant` : 'Chat with my assistant')
+    : (name ? `Chat to book with ${name}` : 'Chat to book a time');
+  const greeting = assistant
+    ? `Hi! I'm ${name || 'the owner'}'s assistant. Ask me about ${name || 'them'} — what they work on, how to get in touch — or tell me when you'd like to meet and I'll find a time.`
+    : `Hi! Tell me roughly when you'd like to meet${name ? ` ${name}` : ''} — e.g. "30 minutes next week, afternoons" — and I'll find open times.`;
   const cfg: ChatPageCfg = {
-    heading: name ? `Chat to book with ${name}` : 'Chat to book a time',
+    heading,
     homeHref: `${base}/`,
     bookHref: `${base}/book`,
     footer: buildFooter(env),
     turnstileSiteKey: turnstileEnabled(env) ? (env.TURNSTILE_SITE_KEY ?? '') : '',
-    greeting: `Hi! Tell me roughly when you'd like to meet${name ? ` ${name}` : ''} — e.g. "30 minutes next week, afternoons" — and I'll find open times.`,
+    greeting,
   };
   return new Response(chatPageHtml(cfg), {
     headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -574,7 +588,7 @@ function serveChatPage(env: Env): Response {
 }
 
 /** Parse + Turnstile-verify a POST /chat, then run one turn. */
-async function handleChatRequest(env: Env, ctx: ExecutionContext, request: Request): Promise<Response> {
+async function handleChatRequest(env: Env, ctx: ExecutionContext, request: Request, mode: ChatMode): Promise<Response> {
   let payload: Record<string, unknown>;
   try { payload = (await request.json()) as Record<string, unknown>; }
   catch { return jsonResponse({ error: 'Invalid request.' }, 400); }
@@ -582,7 +596,7 @@ async function handleChatRequest(env: Env, ctx: ExecutionContext, request: Reque
     const ok = await verifyTurnstile(env.TURNSTILE_SECRET ?? '', String(payload.turnstile ?? ''), request.headers.get('CF-Connecting-IP'));
     if (!ok) return jsonResponse({ error: 'Verification failed — please retry.' }, 400);
   }
-  return handleChat(env, ctx, payload);
+  return handleChat(env, ctx, payload, mode);
 }
 
 /**
@@ -590,7 +604,7 @@ async function handleChatRequest(env: Env, ctx: ExecutionContext, request: Reque
  * action; the Worker computes/validates slots and books — so the model can't
  * fabricate a time or skip the slot re-check.
  */
-async function handleChat(env: Env, ctx: ExecutionContext, payload: Record<string, unknown>): Promise<Response> {
+async function handleChat(env: Env, ctx: ExecutionContext, payload: Record<string, unknown>, mode: ChatMode): Promise<Response> {
   const history = Array.isArray(payload.messages)
     ? (payload.messages as Array<Record<string, unknown>>)
         .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
@@ -609,7 +623,7 @@ async function handleChat(env: Env, ctx: ExecutionContext, payload: Record<strin
   const durationMin = Number(env.SCHEDULE_SLOT_MINUTES ?? '30') || 30;
   const meetings = ['teams', ...(zoomEnabled(env) ? ['zoom'] : []), ...((env.BOOKING_PHONE ?? '').trim() ? ['phone'] : []), 'none'];
   const today = isoDate(Date.now());
-  const sys = systemPrompt({ todayIso: today, ownerName: (env.OWNER_NAME ?? 'me').trim() || 'me', tz, durationMin, proposed, meetings });
+  const sys = systemPrompt({ todayIso: today, ownerName: (env.OWNER_NAME ?? 'me').trim() || 'me', tz, durationMin, proposed, meetings, mode, bio: env.OWNER_BIO });
 
   let action;
   try {

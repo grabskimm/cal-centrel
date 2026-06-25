@@ -102,20 +102,40 @@ export function parseAction(text: string): ChatAction {
   return action;
 }
 
+/**
+ * Chat persona, by entry point:
+ *  - 'schedule'  — launched from the availability/booking surface: stay focused
+ *                  on finding and booking a time.
+ *  - 'assistant' — launched from the standalone chat host: a personal assistant
+ *                  that can also answer questions about the owner (from `bio`)
+ *                  AND still book time.
+ */
+export type ChatMode = 'schedule' | 'assistant';
+
 /** System prompt: the model's whole job is to emit one JSON ChatAction. */
 export function systemPrompt(opts: {
   todayIso: string; ownerName: string; tz: string; durationMin: number;
-  proposed?: Slot[]; meetings: string[];
+  proposed?: Slot[]; meetings: string[]; mode?: ChatMode; bio?: string;
 }): string {
   const proposedList = (opts.proposed ?? [])
     .map((s, i) => `${i + 1}. ${new Date(s.start).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: opts.tz })}`)
     .join('\n');
+  const persona = opts.mode === 'assistant'
+    ? [
+        `You are ${opts.ownerName}'s friendly personal assistant. You can (a) answer questions about ${opts.ownerName} using the ABOUT section below, and (b) help visitors book time with ${opts.ownerName}.`,
+        opts.bio?.trim()
+          ? `ABOUT ${opts.ownerName}:\n${opts.bio.trim()}`
+          : `You have no detailed bio for ${opts.ownerName}; if asked something you don't know, say so briefly and offer to help schedule.`,
+        `Only use the ABOUT section for facts about ${opts.ownerName} — never invent biographical details.`,
+      ]
+    : [`You are a friendly scheduling assistant for ${opts.ownerName}. Keep the focus on finding and booking a time.`];
   return [
-    `You are a friendly scheduling assistant for ${opts.ownerName}. Today is ${opts.todayIso} (${opts.tz}). Default meeting length is ${opts.durationMin} minutes.`,
-    `You DO NOT know the real calendar — never state or invent specific available times. Your only job is to output ONE JSON object (no prose outside it) describing the next action:`,
+    ...persona,
+    `Today is ${opts.todayIso} (${opts.tz}). Default meeting length is ${opts.durationMin} minutes.`,
+    `You DO NOT know the real calendar — never state or invent specific available times. Output ONE JSON object (no prose outside it) describing the next action:`,
     `- {"kind":"propose", "partOfDay":"morning|afternoon|evening|any", "days":[1,2], "fromDate":"YYYY-MM-DD","toDate":"YYYY-MM-DD","durationMin":30, "reply":"short friendly sentence"} — when the user wants to find a time. The app fills in the real slots.`,
     `- {"kind":"book", "pickIndex":N, "email":"...","name":"...","meeting":"teams|zoom|phone|none", "reply":"..."} — when the user picks one of the numbered proposed slots and has given an email. pickIndex is 1-based into the proposed list.`,
-    `- {"kind":"reply", "reply":"..."} — to ask a clarifying question or chat (e.g. you still need their email, or no slots matched).`,
+    `- {"kind":"reply", "reply":"..."} — to answer a question${opts.mode === 'assistant' ? ` about ${opts.ownerName}` : ''}, ask for missing info, or chat.`,
     `Meeting options available: ${opts.meetings.join(', ')}. If the user doesn't say, default meeting to "teams".`,
     opts.proposed && opts.proposed.length ? `Currently proposed slots (use pickIndex):\n${proposedList}` : `No slots are proposed yet.`,
     `Always include a brief, warm "reply". Output ONLY the JSON.`,

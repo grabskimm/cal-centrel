@@ -126,7 +126,14 @@
 
     // Dedicated chat host (the chat booker is also reachable at
     // availability.mendelg.tech/chat). Leave empty to disable the standalone host.
-    "CHAT_HOST": "chat.mendelg.tech"
+    "CHAT_HOST": "chat.mendelg.tech",
+
+    // On the dedicated CHAT_HOST the chat runs in "assistant" mode: it can answer
+    // questions about you (from this bio) as well as book time. Keep it short —
+    // a few sentences mirroring your site (e.g. mendelg.tech). On the public
+    // availability host the chat stays scheduling-only and ignores this. The
+    // model is told to use ONLY these facts and never invent biographical detail.
+    "OWNER_BIO": "Mendel Grabski is a builder and engineer. He created this self-hosted availability + scheduling system that runs entirely on Cloudflare Workers. Learn more at https://mendelg.tech."
   },
 
   "observability": { "enabled": true }

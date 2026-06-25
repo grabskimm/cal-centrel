@@ -99,4 +99,34 @@ describe('systemPrompt', () => {
     expect(p).toContain('pickIndex');
     expect(p).toContain('1.');
   });
+
+  it('schedule mode stays scheduling-only and omits the bio', () => {
+    const p = systemPrompt({
+      todayIso: '2026-07-13', ownerName: 'Mendel', tz: 'UTC', durationMin: 30,
+      meetings: ['teams'], mode: 'schedule', bio: 'Secret bio facts',
+    });
+    expect(p).toContain('scheduling assistant');
+    expect(p).not.toContain('Secret bio facts');
+    expect(p).not.toContain('ABOUT');
+  });
+
+  it('assistant mode adds the persona + ABOUT bio', () => {
+    const p = systemPrompt({
+      todayIso: '2026-07-13', ownerName: 'Mendel', tz: 'UTC', durationMin: 30,
+      meetings: ['teams'], mode: 'assistant', bio: 'Mendel builds things.',
+    });
+    expect(p).toContain('personal assistant');
+    expect(p).toContain('ABOUT Mendel:');
+    expect(p).toContain('Mendel builds things.');
+    expect(p).toContain('never invent biographical details');
+  });
+
+  it('assistant mode without a bio falls back gracefully', () => {
+    const p = systemPrompt({
+      todayIso: '2026-07-13', ownerName: 'Mendel', tz: 'UTC', durationMin: 30,
+      meetings: ['teams'], mode: 'assistant',
+    });
+    expect(p).toContain('personal assistant');
+    expect(p).toContain('no detailed bio');
+  });
 });
