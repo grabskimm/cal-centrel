@@ -113,6 +113,7 @@ export interface Env {
   // --- natural-language chat booker (/chat, Workers AI) ---
   AI?: AiBinding; // Workers AI binding; absent => chat disabled
   CHAT_MODEL?: string; // override the default chat model
+  CHAT_HOST?: string; // optional dedicated host (e.g. chat.example.com) that serves the chat at /
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
@@ -236,6 +237,19 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
   // Treat HEAD like GET for routing (clients probe feeds with HEAD).
   const isRead = request.method === 'GET' || request.method === 'HEAD';
 
+  // --- dedicated chat host (e.g. chat.example.com): a standalone, embeddable
+  //     chat surface that reuses the same /chat backend. Serves the chat UI at /
+  //     and /chat, plus POST /chat. ---
+  if (env.CHAT_HOST && url.hostname === env.CHAT_HOST) {
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
+    if (!chatEnabled(env) || !schedulingEnabled(env)) {
+      return new Response('Chat is not configured.', { status: 404, headers: CORS });
+    }
+    if (request.method === 'POST' && path === '/chat') return handleChatRequest(env, ctx, request);
+    if (isRead && (path === '/' || path === '/chat')) return serveChatPage(env);
+    return new Response('not found', { status: 404, headers: CORS });
+  }
+
   // --- PUBLIC host: token-free, read-only scheduling surface ---
   // Only anonymized reads are reachable here; the token feed, overlays,
   // uploads, and /run are all unreachable, so the public hostname can never
@@ -308,18 +322,7 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
         });
       }
       if (path === '/chat' && chatEnabled(env) && schedulingEnabled(env)) {
-        const name = (env.OWNER_NAME ?? '').trim();
-        const cfg: ChatPageCfg = {
-          heading: name ? `Chat to book with ${name}` : 'Chat to book a time',
-          homeHref: '/',
-          bookHref: '/book',
-          footer: buildFooter(env),
-          turnstileSiteKey: turnstileEnabled(env) ? (env.TURNSTILE_SITE_KEY ?? '') : '',
-          greeting: `Hi! Tell me roughly when you'd like to meet${name ? ` ${name}` : ''} — e.g. "30 minutes next week, afternoons" — and I'll find open times.`,
-        };
-        return new Response(chatPageHtml(cfg), {
-          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
-        });
+        return serveChatPage(env);
       }
     }
     // Contact relay: accept the note and email it to the owner's mailbox.
@@ -413,14 +416,7 @@ async function routeRequest(request: Request, env: Env, ctx: ExecutionContext): 
       if (!chatEnabled(env) || !schedulingEnabled(env)) {
         return jsonResponse({ error: 'Chat booking is not configured.' }, 503);
       }
-      let payload: Record<string, unknown>;
-      try { payload = (await request.json()) as Record<string, unknown>; }
-      catch { return jsonResponse({ error: 'Invalid request.' }, 400); }
-      if (turnstileEnabled(env)) {
-        const ok = await verifyTurnstile(env.TURNSTILE_SECRET ?? '', String(payload.turnstile ?? ''), request.headers.get('CF-Connecting-IP'));
-        if (!ok) return jsonResponse({ error: 'Verification failed — please retry.' }, 400);
-      }
-      return handleChat(env, ctx, payload);
+      return handleChatRequest(env, ctx, request);
     }
     return new Response('not found', { status: 404, headers: CORS });
   }
@@ -560,6 +556,35 @@ function esc(s: string): string {
 const BUILD_TAG = 'b21 · 2026-06-24 outlook-app+holddrag';
 
 /** Build the © footer HTML from env (empty when no owner configured). */
+/** Serve the chat UI (used on the public host /chat and on a dedicated CHAT_HOST). */
+function serveChatPage(env: Env): Response {
+  const name = (env.OWNER_NAME ?? '').trim();
+  const base = env.PUBLIC_FEED_HOST ? `https://${env.PUBLIC_FEED_HOST}` : '';
+  const cfg: ChatPageCfg = {
+    heading: name ? `Chat to book with ${name}` : 'Chat to book a time',
+    homeHref: `${base}/`,
+    bookHref: `${base}/book`,
+    footer: buildFooter(env),
+    turnstileSiteKey: turnstileEnabled(env) ? (env.TURNSTILE_SITE_KEY ?? '') : '',
+    greeting: `Hi! Tell me roughly when you'd like to meet${name ? ` ${name}` : ''} — e.g. "30 minutes next week, afternoons" — and I'll find open times.`,
+  };
+  return new Response(chatPageHtml(cfg), {
+    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
+/** Parse + Turnstile-verify a POST /chat, then run one turn. */
+async function handleChatRequest(env: Env, ctx: ExecutionContext, request: Request): Promise<Response> {
+  let payload: Record<string, unknown>;
+  try { payload = (await request.json()) as Record<string, unknown>; }
+  catch { return jsonResponse({ error: 'Invalid request.' }, 400); }
+  if (turnstileEnabled(env)) {
+    const ok = await verifyTurnstile(env.TURNSTILE_SECRET ?? '', String(payload.turnstile ?? ''), request.headers.get('CF-Connecting-IP'));
+    if (!ok) return jsonResponse({ error: 'Verification failed — please retry.' }, 400);
+  }
+  return handleChat(env, ctx, payload);
+}
+
 /**
  * One turn of the chat booker. The model output is reduced to a structured
  * action; the Worker computes/validates slots and books — so the model can't
