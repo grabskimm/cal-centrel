@@ -7,7 +7,7 @@
  * The pure helpers (tzParts, labelColor) are self-contained so they can be unit
  * tested AND embedded verbatim into the page via `.toString()`.
  */
-import { SHARED_CSS, TZ_PICKER_JS } from './availability-page';
+import { SHARED_CSS, THEME_BTN, THEME_HEAD, THEME_JS, TZ_PICKER_JS } from './availability-page';
 import { outlookComposeUrl } from './calendar-links';
 
 /** Local calendar date (YYYY-MM-DD) and minutes-from-midnight of a UTC instant in tz. */
@@ -53,18 +53,19 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+${THEME_HEAD}
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>${cfg.title}</title>
 <style>${SHARED_CSS}
   .calwrap { max-width:1100px; }
   .toolbar { display:flex; flex-wrap:wrap; gap:.6rem; align-items:flex-end; }
-  .nav button { font:inherit; padding:.5rem .8rem; border:1px solid var(--line); background:#fff;
+  .nav button { font:inherit; padding:.5rem .8rem; border:1px solid var(--line); background:var(--field);
     border-radius:9px; cursor:pointer; }
-  .nav button:hover { background:#f8fafc; }
+  .nav button:hover { background:var(--hover); }
   .viewseg { display:inline-flex; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
   .viewseg button { font:inherit; padding:.5rem .9rem; border:0; border-left:1px solid var(--line);
-    background:#fff; cursor:pointer; }
+    background:var(--field); cursor:pointer; }
   .viewseg button:first-child { border-left:0; }
   .viewseg button.active { background:var(--brand); color:#fff; }
   #period { font-weight:700; margin:.7rem .2rem 0; }
@@ -76,13 +77,13 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
      overrides — otherwise week/month stack on top of each other. */
   .scroll[hidden], .month[hidden] { display:none !important; }
   .month { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); border:1px solid var(--line);
-    border-radius:12px; overflow:hidden; background:#fff; margin-top:.8rem; }
-  .month .dow { background:#f8fafc; border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
+    border-radius:12px; overflow:hidden; background:var(--card); margin-top:.8rem; }
+  .month .dow { background:var(--card2); border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
     font-size:.72rem; font-weight:600; color:var(--muted); }
   .month .cell { min-height:6.4rem; border-right:1px solid var(--line); border-bottom:1px solid var(--line);
     padding:.3rem; cursor:pointer; overflow:hidden; }
-  .month .cell:hover { background:#f8fafc; }
-  .month .cell.off { background:#fafafa; }
+  .month .cell:hover { background:var(--hover); }
+  .month .cell.off { background:var(--card2); }
   .month .cell.off .dn { color:var(--muted); }
   .month .cell.today .dn { background:var(--brand); color:#fff; }
   .month .dn { display:inline-flex; align-items:center; justify-content:center; min-width:1.4rem; height:1.4rem;
@@ -102,13 +103,13 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .selpop { position:fixed; inset:0; background:rgba(11,16,32,.45); display:flex; align-items:center;
     justify-content:center; padding:1rem; z-index:60; animation:fade .15s ease; }
   .selpop[hidden] { display:none !important; }
-  .selpop-card { background:#fff; border-radius:18px; max-width:23rem; width:100%; padding:1.3rem 1.3rem 1.1rem;
+  .selpop-card { background:var(--card); border-radius:18px; max-width:23rem; width:100%; padding:1.3rem 1.3rem 1.1rem;
     box-shadow:0 30px 80px rgba(2,6,23,.35); position:relative; }
   .selpop-card .x { position:absolute; top:.5rem; right:.65rem; border:0; background:transparent; font-size:1.3rem;
     color:var(--muted); cursor:pointer; line-height:1; }
   .selpop-h { font-weight:800; font-size:1.05rem; margin-bottom:.2rem; }
   .selpop-when { color:var(--muted); font-size:.9rem; margin-bottom:.85rem; }
-  .selpop-card input { width:100%; padding:.6rem .7rem; font:inherit; border:1px solid var(--line);
+  .selpop-card input { width:100%; padding:.6rem .7rem; font:inherit; color:var(--ink); background:var(--field); border:1px solid var(--line);
     border-radius:11px; margin-bottom:.95rem; }
   .selpop-card input:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 4px var(--ring); }
   .selpop-actions { display:flex; gap:.5rem; justify-content:flex-end; }
@@ -117,14 +118,14 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .selpop-web:hover { color:var(--ink); }
   .btn-ghost2, .btn-primary2 { font:inherit; font-weight:700; border-radius:10px; padding:.55rem .95rem;
     cursor:pointer; text-decoration:none; }
-  .btn-ghost2 { background:#fff; color:var(--ink); border:1px solid var(--line); }
-  .btn-ghost2:hover { background:#f8fafc; }
+  .btn-ghost2 { background:var(--field); color:var(--ink); border:1px solid var(--line); }
+  .btn-ghost2:hover { background:var(--hover); }
   .btn-primary2 { background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; border:0;
     display:inline-flex; align-items:center; }
   .btn-primary2:hover { filter:brightness(1.06); }
   @keyframes fade { from{opacity:0} to{opacity:1} }
   /* "new events" notifications */
-  .notify { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand);
+  .notify { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--brand);
     border-radius:12px; box-shadow:var(--shadow); padding:.9rem 1rem; margin-top:1rem; }
   .notify-head { display:flex; align-items:center; gap:.5rem; font-weight:800; font-size:.95rem; }
   .notify-head .count { background:var(--brand); color:#fff; border-radius:99px; padding:.04rem .5rem; font-size:.74rem; }
@@ -133,7 +134,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .notify-head .dismiss-all:hover { color:var(--ink); }
   .notify-list { list-style:none; margin:.65rem 0 0; padding:0; display:flex; flex-direction:column; gap:.4rem; }
   .notify-item { display:flex; align-items:center; gap:.6rem; font-size:.85rem; padding:.45rem .55rem;
-    border:1px solid var(--line); border-radius:9px; background:#fbfcff; }
+    border:1px solid var(--line); border-radius:9px; background:var(--card2); }
   .notify-item .sw { width:.7rem; height:.7rem; border-radius:3px; flex:0 0 auto; }
   .notify-item .src { font-weight:700; }
   .notify-item .when { color:var(--muted); }
@@ -145,7 +146,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .legend .sw { width:.8rem; height:.8rem; border-radius:3px; display:inline-block; }
   /* meeting-hours dashboard stats */
   .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.6rem; margin:.9rem .2rem 0; }
-  .stats .stat { border:1px solid var(--line); border-radius:12px; padding:.7rem .8rem; background:#fff; }
+  .stats .stat { border:1px solid var(--line); border-radius:12px; padding:.7rem .8rem; background:var(--card); }
   .stats .stat.active { border-color:var(--brand); box-shadow:inset 0 0 0 1px var(--brand); }
   .stats .stat .lbl { font-size:.62rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
   .stats .stat .val { font-size:1.5rem; font-weight:800; line-height:1.15; margin-top:.15rem; }
@@ -153,8 +154,8 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .stats .stat .sub { font-size:.72rem; color:var(--muted); margin-top:.1rem; }
   @media (max-width:520px){ .stats .stat .val { font-size:1.25rem; } }
   .grid { display:grid; grid-template-columns: 3.2rem repeat(7, minmax(5.2rem, 1fr)); border:1px solid var(--line);
-    border-radius:12px; overflow:hidden; background:#fff; margin-top:.8rem; min-width:680px; }
-  .grid .head { background:#f8fafc; border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
+    border-radius:12px; overflow:hidden; background:var(--card); margin-top:.8rem; min-width:680px; }
+  .grid .head { background:var(--card2); border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
     font-size:.78rem; font-weight:600; }
   .grid .head.today { color:var(--brand); }
   .gutcell { border-bottom:1px dashed var(--line); height:44px; font-size:.66rem; color:var(--muted);
@@ -176,6 +177,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
       ${cfg.bookHref ? `<a href="${cfg.bookHref}">📅 Booking page</a>` : ''}
       <span class="spacer"></span>
       ${cfg.contactHref ? `<a href="${cfg.contactHref}">✉ Contact</a>` : ''}
+      ${THEME_BTN}
     </nav>
     <h1>${cfg.title}</h1>
     <p>Your busy times across every calendar. Gaps are free.</p>
@@ -231,6 +233,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   </div>
 
 <script>
+${THEME_JS}
 const CFG = ${cfgJson};
 // No-op shim for esbuild keepNames' __name() calls embedded via .toString() (see booking.ts).
 var __name = function (f) { return f; };

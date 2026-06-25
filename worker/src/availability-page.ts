@@ -12,19 +12,39 @@ export interface AvailabilityPageCfg {
   contactHref?: string; // when set, shows a "Contact" link in the top nav
 }
 
+// Light/dark theming, shared across every page. THEME_HEAD goes first in <head>
+// so the saved/OS theme is applied before paint (no flash); THEME_BTN is the
+// toggle (drop into the top nav); THEME_JS wires the click (include in the page
+// script). The dark palette lives in SHARED_CSS / each page's :root[data-theme].
+export const THEME_HEAD = `<script>(function(){try{var t=localStorage.getItem('availcal-theme');var d=t||((window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');document.documentElement.dataset.theme=d;}catch(e){}})();</script>`;
+export const THEME_BTN = `<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle light/dark">◐</button>`;
+export const THEME_JS = `(function(){var b=document.getElementById('theme-toggle');if(!b)return;b.addEventListener('click',function(){var d=document.documentElement;var n=(d.dataset.theme==='dark')?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('availcal-theme',n);}catch(e){}});})();`;
+
 // Shared, modern look-and-feel for the public pages.
 export const SHARED_CSS = `
   :root {
-    --bg:#f6f7fb; --card:#ffffff; --ink:#0b1020; --muted:#6b7280;
+    --bg:#f6f7fb; --glow:#eef2ff; --card:#ffffff; --card2:#fcfdff; --field:#ffffff;
+    --hover:#f4f5fb; --off:#c4c8d4; --chipborder:#e3e8ff;
+    --ink:#0b1020; --muted:#6b7280;
     --brand:#6366f1; --brand2:#8b5cf6; --accent:#22d3ee;
     --chip:#eef2ff; --chipink:#4338ca; --ok:#10b981; --line:#eceef3;
     --ring:rgba(99,102,241,.35); --shadow:0 14px 40px rgba(15,23,42,.10);
     --radius:16px;
   }
+  /* Dark theme: set via data-theme on <html> (an early inline script applies the
+     saved choice or the OS default before paint; a toggle flips it). */
+  :root[data-theme="dark"] {
+    --bg:#0b1020; --glow:rgba(99,102,241,.12); --card:#141b2e; --card2:#111728; --field:#1b2236;
+    --hover:#1f2740; --off:#46506e; --chipborder:#2a3354;
+    --ink:#e7e9f0; --muted:#98a2b6;
+    --brand:#818cf8; --brand2:#a78bfa; --accent:#22d3ee;
+    --chip:#1e2747; --chipink:#c7d2fe; --ok:#34d399; --line:#28304b;
+    --ring:rgba(129,140,248,.4); --shadow:0 18px 50px rgba(0,0,0,.55);
+  }
   * { box-sizing:border-box; }
   html { -webkit-text-size-adjust:100%; }
   body { margin:0; color:var(--ink); background:
-      radial-gradient(1200px 500px at 50% -200px, #eef2ff 0%, rgba(238,242,255,0) 60%), var(--bg);
+      radial-gradient(1200px 500px at 50% -200px, var(--glow) 0%, rgba(238,242,255,0) 60%), var(--bg);
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
     line-height:1.5; -webkit-font-smoothing:antialiased; }
   .wrap { max-width: 860px; margin:0 auto; padding: 0 1.1rem 4rem; }
@@ -39,6 +59,10 @@ export const SHARED_CSS = `
     display:inline-flex; gap:.35rem; align-items:center; background:rgba(255,255,255,.16);
     padding:.42rem .8rem; border-radius:99px; backdrop-filter:blur(4px); white-space:nowrap; }
   .topnav a:hover { opacity:1; background:rgba(255,255,255,.28); }
+  .theme-toggle { color:#fff; background:rgba(255,255,255,.16); border:0; cursor:pointer; width:2.1rem; height:2.1rem;
+    border-radius:99px; font-size:1.05rem; line-height:1; display:inline-flex; align-items:center; justify-content:center;
+    backdrop-filter:blur(4px); }
+  .theme-toggle:hover { background:rgba(255,255,255,.28); }
   header.hero::after { content:""; position:absolute; inset:auto 0 -1px 0; height:48px;
     background:linear-gradient(to bottom, transparent, var(--bg)); }
   header.hero h1 { margin:0 0 .4rem; font-size: clamp(1.5rem, 3.4vw, 2.1rem); letter-spacing:-.02em; font-weight:800; }
@@ -49,7 +73,7 @@ export const SHARED_CSS = `
   .field { display:flex; flex-direction:column; gap:.3rem; }
   .field label { font-size:.7rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
   .field select, .field input { padding:.6rem .7rem; font:inherit; color:var(--ink);
-    border:1px solid var(--line); border-radius:11px; background:#fff; min-width:11.5rem; transition:border-color .15s, box-shadow .15s; }
+    border:1px solid var(--line); border-radius:11px; background:var(--field); min-width:11.5rem; transition:border-color .15s, box-shadow .15s; }
   .field select:focus, .field input:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 4px var(--ring); }
   .grow { flex:1 1 14rem; }
   /* Compact, polished timezone dropdown — a real <select> (native dropdown +
@@ -66,15 +90,15 @@ export const SHARED_CSS = `
   .btn-primary { background:linear-gradient(135deg, var(--brand), var(--brand2)); color:#fff;
     box-shadow:0 8px 20px rgba(99,102,241,.35); }
   .btn-primary:hover { filter:brightness(1.06); }
-  .btn-ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
-  .btn-ghost:hover { background:#fafafe; }
+  .btn-ghost { background:var(--field); color:var(--ink); border:1px solid var(--line); }
+  .btn-ghost:hover { background:var(--hover); }
   a.book { margin-left:auto; align-self:center; }
   #status { color:var(--muted); font-size:.85rem; margin:1.3rem .25rem .2rem; }
   .day { margin-top:1.3rem; }
   .day h2 { font-size:.95rem; margin:0 0 .6rem; color:var(--ink); font-weight:700; }
   .chips { display:flex; flex-wrap:wrap; gap:.5rem; }
   .chip { padding:.5rem .8rem; border-radius:12px; background:var(--chip); color:var(--chipink);
-    font-size:.92rem; font-weight:700; border:1px solid #e3e8ff; cursor:pointer; transition:transform .08s, background .15s, color .15s, box-shadow .15s; }
+    font-size:.92rem; font-weight:700; border:1px solid var(--chipborder); cursor:pointer; transition:transform .08s, background .15s, color .15s, box-shadow .15s; }
   .chip:hover { background:var(--brand); color:#fff; border-color:var(--brand); box-shadow:0 6px 16px rgba(99,102,241,.3); }
   .chip:active { transform:translateY(1px); }
   .chip[aria-pressed=true]{ background:var(--brand); color:#fff; border-color:var(--brand); }
@@ -85,7 +109,7 @@ export const SHARED_CSS = `
      to fill the row so all seven weekday columns are roomy; the times list is a
      narrower, fixed column beside it (about half the calendar's width). */
   .booklayout { display:flex; gap:1rem; align-items:flex-start; justify-content:center; flex-wrap:wrap; margin-top:1.1rem; }
-  .card { border:1px solid var(--line); border-radius:13px; padding:1rem 1.05rem; background:#fcfdff; }
+  .card { border:1px solid var(--line); border-radius:13px; padding:1rem 1.05rem; background:var(--card2); }
   .calcard { flex:1 1 24rem; min-width:19rem; max-width:36rem; }
   .timecard { flex:0 0 13rem; width:13rem; min-width:0; display:flex; flex-direction:column; }
   .timecard .timescol { overflow-y:auto; max-height:23rem; padding-right:.15rem; }
@@ -97,9 +121,9 @@ export const SHARED_CSS = `
   }
   .calhead { display:flex; align-items:center; justify-content:space-between; margin-bottom:.6rem; }
   .calhead .ml { font-weight:800; font-size:1rem; }
-  .calhead button { border:1px solid var(--line); background:#fff; border-radius:10px; width:2.2rem; height:2.2rem;
+  .calhead button { border:1px solid var(--line); background:var(--field); border-radius:10px; width:2.2rem; height:2.2rem;
     cursor:pointer; font-size:1.1rem; color:var(--ink); transition:background .15s; }
-  .calhead button:hover { background:#f4f5fb; }
+  .calhead button:hover { background:var(--hover); }
   /* minmax(0,1fr) (not 1fr) so the aspect-ratio cells can shrink — otherwise the
      7th column (Saturday) overflows the card and gets clipped. */
   .cal { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.28rem; }
@@ -107,14 +131,16 @@ export const SHARED_CSS = `
   /* Flatter than square so the month grid stays compact (square cells made the
      calendar much taller than the times column, leaving an uneven panel gap).
      min-height keeps cells tappable on narrow widths where the ratio is short. */
-  .cal-cell { aspect-ratio:1.5; min-height:2.4rem; border:0; border-radius:11px; background:transparent; font:inherit; font-weight:700;
+  .cal-cell { position:relative; aspect-ratio:1.5; min-height:2.4rem; border:0; border-radius:11px; background:transparent; font:inherit; font-weight:700;
     color:var(--ink); display:flex; align-items:center; justify-content:center; cursor:default; transition:transform .08s, background .15s, color .15s; }
   .cal-cell.empty { background:none; }
-  .cal-cell.off { color:#c4c8d4; }
+  .cal-cell.off { color:var(--off); }
   .cal-cell.has { cursor:pointer; background:var(--chip); color:var(--chipink); }
-  .cal-cell.has:hover { background:var(--brand); color:#fff; }
+  /* z-index so the active cell sits above neighbours; tight shadow so the glow
+     doesn't bleed onto adjacent dates (was overlapping, esp. in the embed iframe). */
+  .cal-cell.has:hover { background:var(--brand); color:#fff; z-index:1; }
   .cal-cell.has:active { transform:translateY(1px); }
-  .cal-cell.sel { background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; box-shadow:0 6px 16px rgba(99,102,241,.4); }
+  .cal-cell.sel { background:linear-gradient(135deg,var(--brand),var(--brand2)); color:#fff; box-shadow:0 2px 7px rgba(99,102,241,.3); z-index:2; }
   .cal-cell.today:not(.sel) { box-shadow:inset 0 0 0 2px var(--accent); }
   /* times: a clean VERTICAL list inside the times card; slides in when shown */
   .times { display:flex; flex-direction:column; gap:.5rem; animation:slidein .28s ease; }
@@ -146,7 +172,7 @@ export const SHARED_CSS = `
   .modal { position:fixed; inset:0; background:rgba(11,16,32,.45); display:flex; align-items:center;
     justify-content:center; padding:1rem; z-index:50; animation:fade .15s ease; }
   .modal[hidden]{ display:none; }
-  .sheet { background:#fff; border-radius:20px; max-width:24rem; width:100%; padding:1.6rem 1.5rem 1.4rem;
+  .sheet { background:var(--card); border-radius:20px; max-width:24rem; width:100%; padding:1.6rem 1.5rem 1.4rem;
     box-shadow:0 30px 80px rgba(2,6,23,.35); position:relative; animation:pop .18s ease; text-align:center;
     display:flex; flex-direction:column; overflow:hidden;
     max-height:calc(100vh - 2rem); max-height:calc(100dvh - 2rem); }
@@ -155,7 +181,7 @@ export const SHARED_CSS = `
      from scrolling instead. */
   .sheet-scroll { overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
   body.modal-open { overflow:hidden; }
-  .sheet .x { position:absolute; top:.6rem; right:.7rem; border:0; background:rgba(255,255,255,.85);
+  .sheet .x { position:absolute; top:.6rem; right:.7rem; border:0; background:var(--card);
     border-radius:50%; width:1.8rem; height:1.8rem; font-size:1.3rem; z-index:3;
     color:var(--muted); cursor:pointer; line-height:1; }
   .sheet .x:hover { color:var(--ink); }
@@ -170,14 +196,14 @@ export const SHARED_CSS = `
   .cal-row { display:flex; flex-direction:row; gap:.5rem; text-align:center; }
   .cal-row .btn { flex:1; min-width:0; flex-direction:column; justify-content:center; align-items:center;
     gap:.3rem; padding:.7rem .4rem; font-weight:700; font-size:.8rem;
-    background:#fff; border:1px solid var(--line); color:var(--ink); box-shadow:0 1px 2px rgba(2,6,23,.04); }
-  .cal-row .btn:hover { border-color:var(--brand); background:#fafbff; transform:translateY(-1px);
+    background:var(--field); border:1px solid var(--line); color:var(--ink); box-shadow:0 1px 2px rgba(2,6,23,.04); }
+  .cal-row .btn:hover { border-color:var(--brand); background:var(--hover); transform:translateY(-1px);
     box-shadow:0 8px 18px rgba(99,102,241,.15); }
   .cal-row .btn .ico { display:inline-flex; justify-content:center; }
   /* editable subject inside the booking modal */
   .msubj-l { display:block; font-size:.66rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
     color:var(--muted); text-align:left; margin:0 0 .25rem; }
-  .msubj { width:100%; padding:.55rem .7rem; font:inherit; color:var(--ink); border:1px solid var(--line);
+  .msubj { width:100%; padding:.55rem .7rem; font:inherit; color:var(--ink); background:var(--field); border:1px solid var(--line);
     border-radius:10px; margin:0 0 1rem; }
   .msubj:focus { outline:none; border-color:var(--brand); }
   .mfoot { color:var(--muted); font-size:.74rem; margin:1.05rem 0 0; }
@@ -290,6 +316,7 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+${THEME_HEAD}
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(cfg.title)}</title>
 <style>${SHARED_CSS}</style>
@@ -300,6 +327,7 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
       <a href="/">⌂ Home</a>
       <span class="spacer"></span>
       ${cfg.contactHref ? `<a href="${escapeHtml(cfg.contactHref)}">✉ Contact</a>` : ''}
+      ${THEME_BTN}
     </nav>
     <h1>${escapeHtml(cfg.title)}</h1>
     <p>Choose a day, then a time. Shown in your time zone.</p>
@@ -322,11 +350,11 @@ export function availabilityHtml(cfg: AvailabilityPageCfg): string {
       </div>
     </div>
     <div id="status"></div>
-    <footer>Availability updates hourly.</footer>
     ${cfg.footer ?? ''}
   </div>
 
 <script>
+${THEME_JS}
 const CFG = ${cfgJson};
 ${TZ_PICKER_JS}
 ${CALENDAR_PICKER_JS}

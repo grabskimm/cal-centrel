@@ -5,7 +5,7 @@
  * calendar, or a universal .ics download. No write credential, no backend —
  * AvailCal stays read-only. Times show in a tz the visitor picks.
  */
-import { CALENDAR_PICKER_JS, escapeHtml, SHARED_CSS, TZ_PICKER_JS } from './availability-page';
+import { CALENDAR_PICKER_JS, escapeHtml, SHARED_CSS, THEME_BTN, THEME_HEAD, THEME_JS, TZ_PICKER_JS } from './availability-page';
 import { googleCalendarUrl, icsContent, outlookComposeUrl } from './calendar-links';
 
 export interface BookingPageCfg {
@@ -36,6 +36,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+${THEME_HEAD}
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex" />
 <title>Book a time</title>
@@ -44,7 +45,7 @@ export function bookingHtml(cfg: BookingPageCfg): string {
   .req h4 { margin:0 0 .2rem; font-size:.95rem; }
   .req .rsub { margin:0 0 .7rem; color:var(--muted); font-size:.82rem; }
   .req label { display:block; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:.5rem 0 .2rem; }
-  .req input[type=text], .req input[type=email], .req input[type=tel] { width:100%; padding:.6rem .7rem; font:inherit; color:var(--ink); border:1px solid var(--line); border-radius:10px; }
+  .req input[type=text], .req input[type=email], .req input[type=tel] { width:100%; padding:.6rem .7rem; font:inherit; color:var(--ink); background:var(--field); border:1px solid var(--line); border-radius:10px; }
   .req .rphone-note { font-size:.78rem; color:var(--muted); margin:.4rem 0 0; text-align:left; }
   .req input:focus { outline:none; border-color:var(--brand); }
   .req .mtg { display:flex; gap:.8rem; flex-wrap:wrap; margin-top:.3rem; }
@@ -67,6 +68,7 @@ ${cfg.scheduling?.enabled && cfg.scheduling.turnstileSiteKey
       <a href="${escapeHtml(cfg.homeHref ?? '/')}">⌂ Home</a>
       <span class="spacer"></span>
       ${cfg.contactHref ? `<a href="${escapeHtml(cfg.contactHref)}">✉ Contact</a>` : ''}
+      ${THEME_BTN}
     </nav>
     <h1>${escapeHtml(cfg.heading)}</h1>
     <p>Choose a day, then a time. Shown in your time zone.</p>
@@ -152,6 +154,7 @@ ${cfg.scheduling?.enabled && cfg.scheduling.turnstileSiteKey
   </div>
 
 <script>
+${THEME_JS}
 const CFG = ${cfgJson};
 ${TZ_PICKER_JS}
 ${CALENDAR_PICKER_JS}
