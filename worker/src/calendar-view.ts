@@ -143,6 +143,14 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
   .legend { display:flex; flex-wrap:wrap; gap:.6rem; margin:.8rem .2rem 0; font-size:.8rem; color:var(--muted); }
   .legend .k { display:inline-flex; align-items:center; gap:.35rem; }
   .legend .sw { width:.8rem; height:.8rem; border-radius:3px; display:inline-block; }
+  /* meeting-hours dashboard stats */
+  .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.6rem; margin:.9rem .2rem 0; }
+  .stats .stat { border:1px solid var(--line); border-radius:12px; padding:.7rem .8rem; background:#fff; }
+  .stats .stat .lbl { font-size:.62rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .stats .stat .val { font-size:1.5rem; font-weight:800; line-height:1.15; margin-top:.15rem; }
+  .stats .stat .val .u { font-size:.85rem; font-weight:700; color:var(--muted); margin-left:1px; }
+  .stats .stat .sub { font-size:.72rem; color:var(--muted); margin-top:.1rem; }
+  @media (max-width:520px){ .stats .stat .val { font-size:1.25rem; } }
   .grid { display:grid; grid-template-columns: 3.2rem repeat(7, minmax(5.2rem, 1fr)); border:1px solid var(--line);
     border-radius:12px; overflow:hidden; background:#fff; margin-top:.8rem; min-width:680px; }
   .grid .head { background:#f8fafc; border-bottom:1px solid var(--line); padding:.4rem; text-align:center;
@@ -196,6 +204,7 @@ export function calendarHtml(cfg: CalendarPageCfg): string {
         </div>
       </div>
       <div id="period"></div>
+      <div class="stats" id="stats"></div>
       <div class="legend" id="legend"></div>
     </div>
     <div id="notify" class="notify" hidden></div>
@@ -237,6 +246,7 @@ const gridEl = document.getElementById('grid');
 const monthEl = document.getElementById('month');
 const timeWrap = document.getElementById('timewrap');
 const statusEl = document.getElementById('status');
+const statsEl = document.getElementById('stats');
 const legendEl = document.getElementById('legend');
 const periodEl = document.getElementById('period');
 const hintEl = document.getElementById('hint');
@@ -315,6 +325,57 @@ function scrollToNow(tz) {
   timeWrap.scrollTop = Math.max(0, y - timeWrap.clientHeight/2);
 }
 
+// ---- meeting-hours dashboard stats (today / this week / this month) ----
+// Distribute every event's minutes across the day(s) it spans, in the viewer's
+// tz, so multi-day and overnight blocks count correctly.
+function meetingMinutesByDay(tz) {
+  const map = Object.create(null);
+  for (const ev of events) {
+    const s = tzParts(ev.start, tz), e = tzParts(ev.end, tz);
+    let dayKey = s.dayKey, startMin = s.minutes, guard = 0;
+    while (guard++ < 400) {
+      const endMin = (dayKey === e.dayKey) ? e.minutes : 1440;
+      if (endMin > startMin) map[dayKey] = (map[dayKey] || 0) + (endMin - startMin);
+      if (dayKey === e.dayKey) break;
+      dayKey = addDays(dayKey, 1); startMin = 0;
+    }
+  }
+  return map;
+}
+
+function fmtHours(min) {
+  const h = min / 60;
+  return h >= 10 ? String(Math.round(h)) : (Math.round(h * 10) / 10).toFixed(1).replace(/\.0$/, '');
+}
+
+// Stats are anchored to the real current date (a dashboard summary), not the
+// calendar's navigation anchor, and recompute whenever the data reloads.
+function renderStats(tz) {
+  const byDay = meetingMinutesByDay(tz);
+  const today = todayKey(tz);
+  const weekStart = startOfWeek(today);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const month = today.slice(0, 7);
+  const monthDays = Object.keys(byDay).filter((d) => d.slice(0, 7) === month);
+  const sum = (days) => days.reduce((a, d) => a + (byDay[d] || 0), 0);
+
+  let cDay = 0, cWeek = 0, cMonth = 0;
+  for (const ev of events) {
+    const sd = tzParts(ev.start, tz).dayKey;
+    if (sd === today) cDay++;
+    if (weekDays.indexOf(sd) !== -1) cWeek++;
+    if (sd.slice(0, 7) === month) cMonth++;
+  }
+  const card = (lbl, minutes, n) =>
+    '<div class="stat"><div class="lbl">' + lbl + '</div>' +
+    '<div class="val">' + fmtHours(minutes) + '<span class="u">h</span></div>' +
+    '<div class="sub">' + n + (n === 1 ? ' meeting' : ' meetings') + '</div></div>';
+  statsEl.innerHTML =
+    card('Today', sum([today]), cDay) +
+    card('This week', sum(weekDays), cWeek) +
+    card('This month', sum(monthDays), cMonth);
+}
+
 function renderTimeGrid(tz) {
   const cols = columns();
   const today = todayKey(tz);
@@ -370,7 +431,11 @@ function renderTimeGrid(tz) {
     gridEl.appendChild(body);
   }
   renderLegend(labels);
-  scrollToNow(tz);
+  // Auto-scroll to "now" only when the shown period changes (open / navigate /
+  // view / tz switch) — not on a silent background data refresh, which would
+  // otherwise yank the scroll position back while you're reading.
+  const scrollKey = view + '|' + anchor + '|' + tz;
+  if (timeWrap.dataset.scrollKey !== scrollKey) { scrollToNow(tz); timeWrap.dataset.scrollKey = scrollKey; }
 }
 
 function renderMonth(tz) {
@@ -419,6 +484,7 @@ function render() {
       : 'Tip: drag across the hours (on a phone: tap the start, then tap or hold-drag to the end) to block that time in Outlook.';
     renderTimeGrid(tz);
   }
+  renderStats(tz);
   periodEl.textContent = periodLabel(tz);
   statusEl.textContent = events.length + ' busy block(s).';
 }
@@ -619,20 +685,21 @@ function enableDaySelect(body, dayKey, tz) {
   }, { passive: false });
 }
 
-async function load() {
-  statusEl.textContent = 'Loading…';
+async function load(opts) {
+  const silent = !!(opts && opts.silent); // background refresh: don't flicker status text
+  if (!silent) statusEl.textContent = 'Loading…';
   try {
     const res = await fetch('/busy.json?token=' + encodeURIComponent(token));
-    if (res.status === 403) { statusEl.textContent = 'Invalid or missing token.'; return; }
+    if (res.status === 403) { if (!silent) statusEl.textContent = 'Invalid or missing token.'; return; }
     if (res.status === 404) {
       events = []; render();
-      statusEl.textContent = 'No calendar data yet — trigger a sync (POST /run) or wait for the hourly update.';
+      if (!silent) statusEl.textContent = 'No calendar data yet — trigger a sync (POST /run) or wait for the hourly update.';
       return;
     }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     events = await res.json();
     render();
-  } catch (e) { statusEl.textContent = 'Could not load: ' + e.message; }
+  } catch (e) { if (!silent) statusEl.textContent = 'Could not load: ' + e.message; }
 }
 
 tzSel.addEventListener('change', () => { render(); renderNotifications(); });
@@ -652,6 +719,9 @@ for (const id of ['day','week','month']) {
 if (window.matchMedia('(max-width: 700px)').matches) setView('day');
 load();
 loadNotifications();
+// Keep the stats + grid fresh as new invites land (the merge job runs hourly).
+// Silent so it never flickers the status or yanks the scroll position.
+setInterval(() => { load({ silent: true }); loadNotifications(); }, 5 * 60 * 1000);
 </script>
 </body>
 </html>`;
