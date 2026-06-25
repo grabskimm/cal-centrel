@@ -116,6 +116,7 @@ export interface Env {
   CHAT_MODEL?: string; // override the default chat model
   CHAT_HOST?: string; // optional dedicated host (e.g. chat.example.com) that serves the chat at /
   OWNER_BIO?: string; // short bio used by the assistant-mode chat on CHAT_HOST to answer questions about the owner
+  CHAT_DEBUG?: string; // "true" => include the underlying model error in the /chat JSON response (diagnostics)
 
   PUBLIC_PAGE_TITLE?: string; // friendly heading on the public availability page
   CALENDAR_FALLBACK_TZ?: string; // tz used if a viewer's local zone can't resolve
@@ -574,9 +575,14 @@ function serveChatPage(env: Env, mode: ChatMode): Response {
   const greeting = assistant
     ? `Hi! I'm ${name || 'the owner'}'s assistant. Ask me about ${name || 'them'} — what they work on, how to get in touch — or tell me when you'd like to meet and I'll find a time.`
     : `Hi! Tell me roughly when you'd like to meet${name ? ` ${name}` : ''} — e.g. "30 minutes next week, afternoons" — and I'll find open times.`;
+  // On the standalone assistant host, "Home" should lead to the owner's actual
+  // site rather than circling back to the scheduling host; fall back to the
+  // public availability home when no site URL is configured.
+  const ownerSite = (env.OWNER_SITE_URL ?? '').trim();
+  const homeHref = assistant && ownerSite ? ownerSite : `${base}/`;
   const cfg: ChatPageCfg = {
     heading,
-    homeHref: `${base}/`,
+    homeHref,
     bookHref: `${base}/book`,
     footer: buildFooter(env),
     turnstileSiteKey: turnstileEnabled(env) ? (env.TURNSTILE_SITE_KEY ?? '') : '',
@@ -628,8 +634,14 @@ async function handleChat(env: Env, ctx: ExecutionContext, payload: Record<strin
   let action;
   try {
     action = parseAction(await callModel(env, sys, history));
-  } catch {
-    return jsonResponse({ reply: 'Sorry — I had trouble there. Could you rephrase?' }, 200);
+  } catch (err) {
+    // Surface the real cause: this fires when env.AI.run() rejects (bad model
+    // id, model not enabled on the account, input rejected, etc.). Logged so it
+    // shows up in `wrangler tail` / the dashboard (observability is enabled).
+    console.error('chat: model call failed:', err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    const body: Record<string, unknown> = { reply: 'Sorry — I had trouble there. Could you rephrase?' };
+    if (env.CHAT_DEBUG === 'true') body.debug = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    return jsonResponse(body, 200);
   }
 
   const obj = await env.AVAILCAL_BUCKET.get(PUBLIC_FREEBUSY_KEY);
