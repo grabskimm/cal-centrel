@@ -61,7 +61,8 @@ describe('booking page (Wrangler-bundled, keepNames)', () => {
 
     const body = html.match(/<body>([\s\S]*?)<\/body>/)![1].replace(/<script>[\s\S]*?<\/script>/, '');
     window.document.body.innerHTML = body;
-    window.eval(html.match(/<script>([\s\S]*?)<\/script>/)![1]);
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+    window.eval(scripts[scripts.length - 1][1]); // main page script (theme init is first)
     await new Promise((r) => setTimeout(r, 200));
 
     const doc = window.document;

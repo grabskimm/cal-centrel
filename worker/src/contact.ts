@@ -7,7 +7,7 @@
  * provider is configured the form falls back to a plain mailto: link, so the
  * page is always useful and AvailCal keeps working with zero backend secrets.
  */
-import { escapeHtml, SHARED_CSS } from './availability-page';
+import { escapeHtml, SHARED_CSS, THEME_BTN, THEME_HEAD, THEME_JS } from './availability-page';
 
 export interface ContactEnv {
   CONTACT_TO?: string; // mailbox that receives notes
@@ -101,13 +101,14 @@ export function contactHtml(cfg: ContactPageCfg): string {
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+${THEME_HEAD}
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(cfg.heading)}</title>
 <style>${SHARED_CSS}
   .form { display:flex; flex-direction:column; gap:.9rem; }
   .form label { font-size:.7rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
   .form input, .form textarea { width:100%; padding:.7rem .8rem; font:inherit; color:var(--ink);
-    border:1px solid var(--line); border-radius:11px; background:#fff; }
+    border:1px solid var(--line); border-radius:11px; background:var(--field); }
   .form input:focus, .form textarea:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 4px var(--ring); }
   .form textarea { min-height:8rem; resize:vertical; }
   .hp { position:absolute; left:-9999px; }
@@ -118,7 +119,7 @@ export function contactHtml(cfg: ContactPageCfg): string {
 </head>
 <body>
   <header class="hero">
-    <nav class="topnav"><a href="${escapeHtml(cfg.homeHref ?? '/')}">⌂ Home</a><span class="spacer"></span></nav>
+    <nav class="topnav"><a href="${escapeHtml(cfg.homeHref ?? '/')}">⌂ Home</a><span class="spacer"></span>${THEME_BTN}</nav>
     <h1>${escapeHtml(cfg.heading)}</h1>
     <p>Drop a note and it lands straight in my inbox.</p>
   </header>
@@ -136,6 +137,7 @@ export function contactHtml(cfg: ContactPageCfg): string {
     ${cfg.footer ?? ''}
   </div>
 <script>
+${THEME_JS}
 const CFG = ${cfgJson};
 const $ = (id)=>document.getElementById(id);
 const form=$('form'), statusEl=$('status'), btn=$('send');

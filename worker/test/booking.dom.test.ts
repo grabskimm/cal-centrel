@@ -26,11 +26,11 @@ const SLOTS = [
   { start: '2026-07-15T17:00:00.000Z', end: '2026-07-15T17:30:00.000Z' },
 ];
 
-/** Pull the single inline <script> body out of the rendered page. */
+/** Pull the MAIN inline <script> body (the last one — the theme early-init is first). */
 function extractScript(html: string): string {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> found in booking page');
-  return m[1];
+  const all = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  if (!all.length) throw new Error('no <script> found in booking page');
+  return all[all.length - 1][1];
 }
 
 /** Drop the page <body> into jsdom, run its script, wait for the calendar, then
